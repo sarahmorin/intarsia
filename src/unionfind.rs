@@ -42,14 +42,18 @@ impl UnionFind {
         curr_id
     }
 
-    /// Union two sets containing `id1` and `id2` and return the root of the new set.
+    /// Union two sets containing `id1` and `id2` and return the root id of the new set.
+    /// The set with the smaller root id becomes the parent of the other.
     pub fn union(&mut self, id1: Id, id2: Id) -> Id {
         // TODO: Do we need to actually do the find, or should we just assume the caller
         // already did a find?
         let root1 = self.find(id1);
         let root2 = self.find(id2);
-        if root1 != root2 {
+
+        if root1 < root2 {
             self.parent[root2] = root1;
+        } else if root2 < root1 {
+            self.parent[root1] = root2;
         }
         root1
     }
