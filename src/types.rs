@@ -92,12 +92,46 @@ where
         }
     }
 
-    /// Returns a default OpInfo with given arity and no properties
+    /// Returns a new OpInfo instance with the given arity and all properties set to bottom.
     pub fn default(arity: usize) -> Self {
         Self {
             arity,
             output_props: P::bottom(),
             input_props: P::n_bottoms(arity),
+        }
+    }
+
+    /// Returns arity
+    pub fn arity(&self) -> usize {
+        self.arity
+    }
+
+    /// Returns output properties
+    pub fn output_props(&self) -> &P {
+        &self.output_props  
+    }
+
+    /// Returns input properties at argument index
+    pub fn input_props(&self, index: usize) -> &P {
+        self.input_props.get(index).unwrap_or_else(|| {
+            panic!(
+                "Index {} out of bounds for input_props with length {}",
+                index,
+                self.input_props.len()
+            )
+        })
+    }
+}
+
+impl<P> Default for OpInfo<P>
+where
+    P: Property,
+{
+    fn default() -> Self {
+        Self {
+            arity: 0,
+            output_props: P::bottom(),
+            input_props: vec![],
         }
     }
 }
@@ -127,7 +161,7 @@ pub trait PropLang<T, P>
 where
     T: AST,
     P: Property + From<T>,
-    OpInfo<P>: From<Expr<T>>,
+    OpInfo<P>: From<Expr<T>> + From<Pattern<T>>,
 {}
 
 /// Generic Recursive Expression structure
@@ -288,7 +322,7 @@ impl<T, P> MulteTerm<T, P>
 where
     T: AST + Into<P>,
     P: Property + From<T>,
-    OpInfo<P>: From<Expr<T>>,
+    OpInfo<P>: From<Expr<T>> + From<Pattern<T>>,
     Expr<T>: PropLang<T, P>,
 {
     /// Creates a new term with the given operator and arguments.
