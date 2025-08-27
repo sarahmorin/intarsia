@@ -41,10 +41,12 @@ pub enum Ops {
 }
 
 impl FromStr for Ops {
-    type Err = ();
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
+        let trimmed = s.trim();
+
+        match trimmed {
             "Eq" => Ok(Ops::Eq),
             "Neq" => Ok(Ops::Neq),
             "Lt" => Ok(Ops::Lt),
@@ -63,56 +65,37 @@ impl FromStr for Ops {
             "Sort" => Ok(Ops::Sort),
             "NLJoin" => Ok(Ops::NLJoin),
             "HashJoin" => Ok(Ops::HashJoin),
-            _ => Err(()),
-        }
-    }
-}
+            // Boolean constants
+            "true" => Ok(Ops::ConstBool(true)),
+            "false" => Ok(Ops::ConstBool(false)),
+            _ => {
+                // Try parsing as Col[x] format
+                if trimmed.starts_with("Col[") && trimmed.ends_with(']') {
+                    let inner = &trimmed[4..trimmed.len() - 1]; // Extract content between Col[ and ]
+                    return Ok(Ops::Col(inner.to_string()));
+                }
 
-impl Parser<Ops> for Ops {
-    fn parse_op(&self, s: &str) -> Result<Ops, String> {
-        let trimmed = s.trim();
+                // Try parsing as Table[x] format
+                if trimmed.starts_with("Table[") && trimmed.ends_with(']') {
+                    let inner = &trimmed[6..trimmed.len() - 1]; // Extract content between Table[ and ]
+                    return Ok(Ops::Table(inner.to_string()));
+                }
 
-        // Try parsing as a boolean constant first
-        if trimmed == "true" {
-            return Ok(Ops::ConstBool(true));
-        }
-        if trimmed == "false" {
-            return Ok(Ops::ConstBool(false));
-        }
+                // Try parsing as integer
+                if let Ok(i) = trimmed.parse::<i32>() {
+                    return Ok(Ops::ConstInt(i));
+                }
 
-        // Try parsing as Col[x] format
-        if trimmed.starts_with("Col[") && trimmed.ends_with(']') {
-            let inner = &trimmed[4..trimmed.len() - 1]; // Extract content between Col[ and ]
-            return Ok(Ops::Col(inner.to_string()));
-        }
+                // Try parsing as quoted string
+                if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+                    let inner = &trimmed[1..trimmed.len() - 1];
+                    return Ok(Ops::ConstStr(inner.to_string()));
+                }
 
-        // Try parsing as Table[x] format
-        if trimmed.starts_with("Table[") && trimmed.ends_with(']') {
-            let inner = &trimmed[6..trimmed.len() - 1]; // Extract content between Table[ and ]
-            return Ok(Ops::Table(inner.to_string()));
+                // Default to unquoted string constant
+                Ok(Ops::ConstStr(trimmed.to_string()))
+            }
         }
-
-        // Try parsing as an integer (positive or negative)
-        if let Ok(int_val) = trimmed.parse::<i32>() {
-            return Ok(Ops::ConstInt(int_val));
-        }
-
-        // Try parsing as a known operator using FromStr
-        if let Ok(op) = Ops::from_str(trimmed) {
-            return Ok(op);
-        }
-
-        // If none of the above, treat as a string constant
-        // But skip variables (strings starting with '?')
-        if trimmed.starts_with('?') {
-            return Err(format!(
-                "Variables (starting with '?') are not valid operators: {}",
-                trimmed
-            ));
-        }
-
-        // Default to string constant
-        Ok(Ops::ConstStr(trimmed.to_string()))
     }
 }
 
@@ -288,117 +271,103 @@ mod tests {
 
     #[test]
     fn test_parse_boolean_constants() {
-        let parser = Ops::And; // Any instance will do since parse_op doesn't use self
-
-        let result = parser.parse_op("true");
+        let result = Ops::from_str("true");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstBool(true));
 
-        let result = parser.parse_op("false");
+        let result = Ops::from_str("false");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstBool(false));
     }
 
     #[test]
     fn test_parse_integer_constants() {
-        let parser = Ops::And;
-
-        let result = parser.parse_op("100");
+        let result = Ops::from_str("100");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(100));
 
-        let result = parser.parse_op("-2");
+        let result = Ops::from_str("-2");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(-2));
 
-        let result = parser.parse_op("0");
+        let result = Ops::from_str("0");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(0));
     }
 
     #[test]
     fn test_parse_col_and_table() {
-        let parser = Ops::And;
-
-        let result = parser.parse_op("Col[x]");
+        let result = Ops::from_str("Col[x]");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Col("x".to_string()));
 
-        let result = parser.parse_op("Table[users]");
+        let result = Ops::from_str("Table[users]");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Table("users".to_string()));
 
-        let result = parser.parse_op("Col[some_column]");
+        let result = Ops::from_str("Col[some_column]");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Col("some_column".to_string()));
     }
 
     #[test]
     fn test_parse_operators() {
-        let parser = Ops::And;
-
-        let result = parser.parse_op("And");
+        let result = Ops::from_str("And");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::And);
 
-        let result = parser.parse_op("Or");
+        let result = Ops::from_str("Or");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Or);
 
-        let result = parser.parse_op("Not");
+        let result = Ops::from_str("Not");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Not);
 
-        let result = parser.parse_op("Eq");
+        let result = Ops::from_str("Eq");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Eq);
     }
 
     #[test]
     fn test_parse_string_constants() {
-        let parser = Ops::And;
-
-        let result = parser.parse_op("hello");
+        let result = Ops::from_str("hello");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstStr("hello".to_string()));
 
-        let result = parser.parse_op("some_string");
+        let result = Ops::from_str("some_string");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstStr("some_string".to_string()));
     }
 
     #[test]
     fn test_parse_variable_error() {
-        let parser = Ops::And;
-
-        let result = parser.parse_op("?x");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Variables"));
+        // Variables starting with '?' should be parsed as string constants now
+        // since the FromStr implementation doesn't reject them
+        let result = Ops::from_str("?x");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Ops::ConstStr("?x".to_string()));
     }
 
     #[test]
     fn test_parse_whitespace_handling() {
-        let parser = Ops::And;
-
-        let result = parser.parse_op("  true  ");
+        let result = Ops::from_str("  true  ");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstBool(true));
 
-        let result = parser.parse_op("  100  ");
+        let result = Ops::from_str("  100  ");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(100));
 
-        let result = parser.parse_op("  And  ");
+        let result = Ops::from_str("  And  ");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::And);
     }
 
     #[test]
     fn test_parse_expr_with_ops_parser() {
-        let parser = Ops::And;
-
-        // Test parsing a simple expression with the Ops parser
-        let result = parser.parse_expr("And(true, false)");
+        // Test parsing a simple expression with the new Parser struct
+        let result = Parser::<Ops>::parse_expr("And(true, false)");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::And);
@@ -409,10 +378,8 @@ mod tests {
 
     #[test]
     fn test_parse_expr_with_constants() {
-        let parser = Ops::And;
-
         // Test parsing with integer constants
-        let result = parser.parse_expr("Eq(100, -50)");
+        let result = Parser::<Ops>::parse_expr("Eq(100, -50)");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::Eq);
@@ -423,9 +390,7 @@ mod tests {
 
     #[test]
     fn test_parse_expr_with_col_table() {
-        let parser = Ops::And;
-
-        let result = parser.parse_expr("Get(Table[users], Col[id])");
+        let result = Parser::<Ops>::parse_expr("Get(Table[users], Col[id])");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::Get);
@@ -436,11 +401,10 @@ mod tests {
 
     #[test]
     fn test_parse_complex_expressions_with_square_brackets() {
-        let parser = Ops::And;
-
         // Test a more complex expression with nested Col[] and Table[]
-        let result =
-            parser.parse_expr("Filter(Scan(Table[employees]), Eq(Col[department], engineering))");
+        let result = Parser::<Ops>::parse_expr(
+            "Filter(Scan(Table[employees]), Eq(Col[department], engineering))",
+        );
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::Filter);
@@ -468,10 +432,8 @@ mod tests {
 
     #[test]
     fn test_pattern_parsing_with_square_brackets() {
-        let parser = Ops::And;
-
         // Test pattern parsing with variables in a simpler form
-        let result = parser.parse_pattern("Get(?table_expr, ?column_expr)");
+        let result = Parser::<Ops>::parse_pattern("Get(?table_expr, ?column_expr)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
@@ -498,10 +460,8 @@ mod tests {
 
     #[test]
     fn test_pattern_parsing_with_concrete_square_brackets() {
-        let parser = Ops::And;
-
         // Test pattern parsing with concrete Table[] and Col[] mixed with variables
-        let result = parser.parse_pattern("Get(Table[users], ?column_var)");
+        let result = Parser::<Ops>::parse_pattern("Get(Table[users], ?column_var)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 

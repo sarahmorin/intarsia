@@ -1,23 +1,31 @@
 /// Generate a parser for a given language
 use crate::types::*;
+use std::str::FromStr;
+
+pub struct Parser<T>
+where
+    T: AST + FromStr,
+{
+    phantom: std::marker::PhantomData<T>,
+}
 
 /// Parser trait defines the behavior needed for parsing different AST nodes.
 /// The FromStr trait in AST generally covers parsing operators from strings;
 /// however, languages typically need to implement their own parsing for constants/terminals.
-pub trait Parser<T>
+impl<T> Parser<T>
 where
-    T: AST,
+    T: AST + FromStr,
+    T::Err: std::fmt::Display,
 {
-    /// Parse a string into an AST operator node
-    fn parse_op(&self, s: &str) -> Result<T, String>;
     /// Parse a string into an AST Expr node
-    fn parse_expr(&self, s: &str) -> Result<Expr<T>, String> {
+    pub fn parse_expr(s: &str) -> Result<Expr<T>, String> {
         let trimmed = s.trim();
 
         // Check if this is a terminal (no parentheses)
         if !trimmed.contains('(') {
             // Terminal expression - just parse the operator
-            let op = self.parse_op(trimmed)?;
+            let op = T::from_str(trimmed)
+                .map_err(|e| format!("Failed to parse operator '{}': {}", trimmed, e))?;
             return Ok(Expr::new(op, vec![]));
         }
 
@@ -26,7 +34,8 @@ where
 
         // Extract operator name
         let op_str = &trimmed[..paren_pos];
-        let op = self.parse_op(op_str)?;
+        let op = T::from_str(op_str)
+            .map_err(|e| format!("Failed to parse operator '{}': {}", op_str, e))?;
 
         // Find matching closing parenthesis
         let args_str = &trimmed[paren_pos + 1..];
@@ -39,9 +48,9 @@ where
         let mut args = Vec::new();
         if !args_str.trim().is_empty() {
             // Split by commas, but respect nested parentheses
-            let arg_strings = self.split_args(args_str)?;
+            let arg_strings = Self::split_args(args_str)?;
             for arg_str in arg_strings {
-                let arg_expr = self.parse_expr(&arg_str)?;
+                let arg_expr = Self::parse_expr(&arg_str)?;
                 args.push(arg_expr);
             }
         }
@@ -50,7 +59,7 @@ where
     }
 
     /// Helper function to split arguments by commas while respecting nested parentheses
-    fn split_args(&self, s: &str) -> Result<Vec<String>, String> {
+    fn split_args(s: &str) -> Result<Vec<String>, String> {
         let mut args = Vec::new();
         let mut current_arg = String::new();
         let mut paren_depth = 0;
@@ -89,7 +98,7 @@ where
         Ok(args)
     }
     /// Parse a string into an AST Pattern node
-    fn parse_pattern(&self, s: &str) -> Result<Pattern<T>, String> {
+    pub fn parse_pattern(s: &str) -> Result<Pattern<T>, String> {
         let trimmed = s.trim();
 
         // Check if this is a variable (starts with '?')
@@ -106,7 +115,8 @@ where
         // Check if this is a terminal operator (no parentheses)
         if !trimmed.contains('(') {
             // Terminal expression - parse the operator and wrap in OpOrVar::Op
-            let op = self.parse_op(trimmed)?;
+            let op = T::from_str(trimmed)
+                .map_err(|e| format!("Failed to parse operator '{}': {}", trimmed, e))?;
             let op_or_var = OpOrVar::Op(op);
             return Ok(Expr::new(op_or_var, vec![]));
         }
@@ -116,7 +126,8 @@ where
 
         // Extract operator name
         let op_str = &trimmed[..paren_pos];
-        let op = self.parse_op(op_str)?;
+        let op = T::from_str(op_str)
+            .map_err(|e| format!("Failed to parse operator '{}': {}", op_str, e))?;
         let op_or_var = OpOrVar::Op(op);
 
         // Find matching closing parenthesis
@@ -130,9 +141,9 @@ where
         let mut args = Vec::new();
         if !args_str.trim().is_empty() {
             // Split by commas, but respect nested parentheses
-            let arg_strings = self.split_args(args_str)?;
+            let arg_strings = Self::split_args(args_str)?;
             for arg_str in arg_strings {
-                let arg_pattern = self.parse_pattern(&arg_str)?;
+                let arg_pattern = Self::parse_pattern(&arg_str)?;
                 args.push(arg_pattern);
             }
         }
@@ -145,26 +156,10 @@ where
 mod tests {
     use super::*;
     use crate::testlang::Ops;
-    use std::str::FromStr;
-
-    // Simple test parser implementation for Ops
-    struct TestParser;
-
-    impl Parser<Ops> for TestParser {
-        fn parse_op(&self, s: &str) -> Result<Ops, String> {
-            // Handle boolean constants specially
-            match s {
-                "true" => Ok(Ops::ConstBool(true)),
-                "false" => Ok(Ops::ConstBool(false)),
-                _ => Ops::from_str(s).map_err(|_| format!("Unknown operator: {}", s)),
-            }
-        }
-    }
 
     #[test]
     fn test_parse_terminal() {
-        let parser = TestParser;
-        let result = parser.parse_expr("true");
+        let result = Parser::<Ops>::parse_expr("true");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::ConstBool(true));
@@ -173,8 +168,7 @@ mod tests {
 
     #[test]
     fn test_parse_simple_expression() {
-        let parser = TestParser;
-        let result = parser.parse_expr("Not(true)");
+        let result = Parser::<Ops>::parse_expr("Not(true)");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::Not);
@@ -184,8 +178,7 @@ mod tests {
 
     #[test]
     fn test_parse_nested_expression() {
-        let parser = TestParser;
-        let result = parser.parse_expr("And(Not(true), false)");
+        let result = Parser::<Ops>::parse_expr("And(Not(true), false)");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::And);
@@ -205,8 +198,7 @@ mod tests {
 
     #[test]
     fn test_parse_empty_args() {
-        let parser = TestParser;
-        let result = parser.parse_expr("And()");
+        let result = Parser::<Ops>::parse_expr("And()");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::And);
@@ -215,8 +207,7 @@ mod tests {
 
     #[test]
     fn test_parse_complex_nested() {
-        let parser = TestParser;
-        let result = parser.parse_expr("Or(And(Not(true), false), Not(And(true, false)))");
+        let result = Parser::<Ops>::parse_expr("Or(And(Not(true), false), Not(And(true, false)))");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::Or);
@@ -225,22 +216,23 @@ mod tests {
 
     #[test]
     fn test_parse_error_mismatched_parens() {
-        let parser = TestParser;
-        let result = parser.parse_expr("And(true, false");
+        let result = Parser::<Ops>::parse_expr("And(true, false");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_error_unknown_operator() {
-        let parser = TestParser;
-        let result = parser.parse_expr("UnknownOp(true)");
-        assert!(result.is_err());
+        // With the new FromStr implementation, unknown operators are parsed as string constants
+        let result = Parser::<Ops>::parse_expr("UnknownOp(true)");
+        assert!(result.is_ok());
+        let expr = result.unwrap();
+        // The operator should be parsed as a string constant
+        assert_eq!(*expr.op(), Ops::ConstStr("UnknownOp".to_string()));
     }
 
     #[test]
     fn test_parse_whitespace_handling() {
-        let parser = TestParser;
-        let result = parser.parse_expr("  And(  Not( true ) , false  )  ");
+        let result = Parser::<Ops>::parse_expr("  And(  Not( true ) , false  )  ");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::And);
@@ -249,8 +241,7 @@ mod tests {
 
     #[test]
     fn test_parse_deeply_nested() {
-        let parser = TestParser;
-        let result = parser.parse_expr("And(Or(Not(true), false), Not(Or(false, true)))");
+        let result = Parser::<Ops>::parse_expr("And(Or(Not(true), false), Not(Or(false, true)))");
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), Ops::And);
@@ -270,8 +261,7 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_variable() {
-        let parser = TestParser;
-        let result = parser.parse_pattern("?x");
+        let result = Parser::<Ops>::parse_pattern("?x");
         assert!(result.is_ok());
         let pattern = result.unwrap();
         match pattern.op() {
@@ -283,8 +273,7 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_terminal_operator() {
-        let parser = TestParser;
-        let result = parser.parse_pattern("true");
+        let result = Parser::<Ops>::parse_pattern("true");
         assert!(result.is_ok());
         let pattern = result.unwrap();
         match pattern.op() {
@@ -296,8 +285,7 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_with_variables() {
-        let parser = TestParser;
-        let result = parser.parse_pattern("And(?a, ?b)");
+        let result = Parser::<Ops>::parse_pattern("And(?a, ?b)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
@@ -325,8 +313,7 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_mixed() {
-        let parser = TestParser;
-        let result = parser.parse_pattern("And(Not(?x), true)");
+        let result = Parser::<Ops>::parse_pattern("And(Not(?x), true)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
@@ -362,8 +349,7 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_empty_variable_error() {
-        let parser = TestParser;
-        let result = parser.parse_pattern("?");
+        let result = Parser::<Ops>::parse_pattern("?");
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -372,8 +358,7 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_complex_variables() {
-        let parser = TestParser;
-        let result = parser.parse_pattern("Or(And(?x, ?y), Not(?z))");
+        let result = Parser::<Ops>::parse_pattern("Or(And(?x, ?y), Not(?z))");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
@@ -420,8 +405,7 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_whitespace_variables() {
-        let parser = TestParser;
-        let result = parser.parse_pattern("  And( ?a , ?b )  ");
+        let result = Parser::<Ops>::parse_pattern("  And( ?a , ?b )  ");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 

@@ -1,10 +1,13 @@
 mod egraph;
+mod multegraph;
+mod parser;
+mod propertymap;
+// mod rule;
+mod testlang;
 mod types;
 mod unionfind;
-mod multegraph;
-mod testlang;
-mod propertymap;
 
-fn main() {
-    println!("Hello, world!");
-}
+use crate::multegraph::*;
+use crate::testlang::*;
+
+fn main() {}
