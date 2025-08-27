@@ -31,7 +31,22 @@ pub type Var = String;
 /// }
 /// ```
 // FIXME: Come up with a better name for this trait.
-pub trait AST: Clone + Debug + PartialEq + Eq + Display + Hash {}
+pub trait AST: Clone + Debug + PartialEq + Eq + Display + Hash {
+    type Operator;
+    /// Returns the operator of the AST node.
+    fn op(&self) -> &Self::Operator;
+}
+
+#[macro_export]
+macro_rules! impl_ast_default {
+    () => {
+        type Operator = Self;
+
+        fn op(&self) -> &Self::Operator {
+            self
+        }
+    };
+}
 
 /// Alias for generic analysis type.
 pub trait Analysis: Lattice + Clone + Debug + PartialEq + Eq {
@@ -108,7 +123,7 @@ where
 
     /// Returns output properties
     pub fn output_props(&self) -> &P {
-        &self.output_props  
+        &self.output_props
     }
 
     /// Returns input properties at argument index
@@ -162,7 +177,8 @@ where
     T: AST,
     P: Property + From<T>,
     OpInfo<P>: From<Expr<T>> + From<Pattern<T>>,
-{}
+{
+}
 
 /// Generic Recursive Expression structure
 /// Typically we use the expression to represent the input expression to the system
@@ -245,9 +261,12 @@ where
     }
 }
 
-impl<T> AST for OpOrVar<T> where
+impl<T> AST for OpOrVar<T>
+where
     T: AST,
-{}
+{
+    impl_ast_default!();
+}
 
 impl<T> From<Var> for OpOrVar<T>
 where

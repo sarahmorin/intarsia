@@ -1,4 +1,4 @@
-use crate::types::{Analysis, Expr, Pattern, Id, Subst, Term, AST, Var, OpOrVar};
+use crate::types::{Analysis, Expr, Id, OpOrVar, Pattern, Subst, Term, Var, AST};
 use crate::unionfind::UnionFind;
 use indexmap::IndexMap;
 use std::fmt::{Debug, Display};
@@ -254,7 +254,7 @@ where
         Term<T>: Clone + Eq + Hash + Debug,
         A: Analysis,
     {
-        match pattern.op(){
+        match pattern.op() {
             OpOrVar::Var(s) => {
                 // If the expression is a variable, we need to substitute it with the corresponding Id
                 if let Some(&id) = subst.get(s) {
@@ -265,7 +265,11 @@ where
             }
             OpOrVar::Op(op) => {
                 // Recursively convert expression to a term
-                let arg_ids: Vec<Id> = pattern.args().iter().map(|arg| self.add_enode_match(arg, subst)).collect();
+                let arg_ids: Vec<Id> = pattern
+                    .args()
+                    .iter()
+                    .map(|arg| self.add_enode_match(arg, subst))
+                    .collect();
                 let term = Term::new(op.clone(), arg_ids);
 
                 // Canonicalize the term
@@ -295,7 +299,12 @@ where
     /// Match an expression against an EClass
     /// Returns a vector of substitutions that match the expression against the EClass
     // FIXME: What about matching a pattern without variables?
-    pub fn ematch(&self, pattern: &Pattern<T>, eclass: Id, subst: &Subst<Var, Id>) -> Vec<Subst<Var, Id>> {
+    pub fn ematch(
+        &self,
+        pattern: &Pattern<T>,
+        eclass: Id,
+        subst: &Subst<Var, Id>,
+    ) -> Vec<Subst<Var, Id>> {
         fn insert_subst(var: &Var, eclass: Id, subst: &Subst<Var, Id>) -> Option<Subst<Var, Id>> {
             let mut subst_clone = subst.clone();
             if let Some(id) = subst_clone.insert(var.clone(), eclass) {
@@ -316,7 +325,7 @@ where
                     res.push(subst_clone); // Return the substitution map with the constant added
                 }
                 return res;
-            },
+            }
             OpOrVar::Op(_expr) => {
                 // If expression is a constant, try to find an ENode in the class that matches
                 if pattern.is_terminal() {
@@ -353,7 +362,7 @@ where
                 }
             }
         }
-        
+
         res
     }
 
@@ -455,6 +464,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use crate::impl_ast_default;
+
     use super::*;
 
     // Test operator for testing
@@ -477,7 +488,9 @@ mod tests {
         }
     }
 
-    impl AST for TestOp {}
+    impl AST for TestOp {
+        impl_ast_default!();
+    }
 
     // Use unit type for analysis to simplify testing
     type TestAnalysis = ();
@@ -684,10 +697,7 @@ mod tests {
 
         // Variable should match any eclass
         assert_eq!(matches.len(), 1);
-        assert_eq!(
-            matches[0].get("x"),
-            Some(&const_id)
-        );
+        assert_eq!(matches[0].get("x"), Some(&const_id));
     }
 
     #[test]
@@ -729,10 +739,7 @@ mod tests {
         // Should match with x = const(1)
         assert_eq!(matches.len(), 1);
         let const1_id = egraph.add_expr(&const1);
-        assert_eq!(
-            matches[0].get("x"),
-            Some(&const1_id)
-        );
+        assert_eq!(matches[0].get("x"), Some(&const1_id));
     }
 
     #[test]
@@ -1000,9 +1007,6 @@ mod tests {
         assert_eq!(matches.len(), 1);
         let expected_mul_id =
             egraph.add_expr(&make_mul_expr(make_var_expr("x"), make_const_expr(2)));
-        assert_eq!(
-            matches[0].get("y"),
-            Some(&expected_mul_id)
-        );
+        assert_eq!(matches[0].get("y"), Some(&expected_mul_id));
     }
 }

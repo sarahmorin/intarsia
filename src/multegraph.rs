@@ -1,9 +1,8 @@
+use crate::propertymap::PropertyMap;
 use crate::types::*;
 use crate::unionfind::UnionFind;
-use crate::propertymap::PropertyMap;
 use indexmap::IndexMap;
-use bimap::BiMap;
-use std::{fmt::{Debug, Display}};
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 // TODO: Devise a better solution for these
@@ -168,7 +167,7 @@ where
 {
     pub fn new() -> Self {
         EGraph {
-            uf: UnionFind::new(),   
+            uf: UnionFind::new(),
             hc: IndexMap::new(),
             pc: PropertyMap::new(),
             eclasses: IndexMap::new(),
@@ -216,7 +215,10 @@ where
         // Find the parent EClass
         if let Some(parent_eclass) = self.get_log_eclass(parent_id) {
             // Ensure the Id matches the representative of the e-class
-            assert_eq!(parent_eclass.id, *parent_id, "EClass id does not match representative");
+            assert_eq!(
+                parent_eclass.id, *parent_id,
+                "EClass id does not match representative"
+            );
             // Iterate over the ENodes in the parent EClass and find those matching the property
             for enode_id in parent_eclass.get_enodes() {
                 if let Some(enode) = self.get_enode(enode_id) {
@@ -280,7 +282,11 @@ where
         MulteTerm<T, P>: Clone + Eq + Hash + Debug,
     {
         let op = term.op().clone();
-        let args = term.args().iter().map(|&arg| (self.find(class_id(arg)), prop_id(arg))).collect();
+        let args = term
+            .args()
+            .iter()
+            .map(|&arg| (self.find(class_id(arg)), prop_id(arg)))
+            .collect();
         MulteTerm::new(op, args, term.props().clone())
     }
 
@@ -293,16 +299,20 @@ where
     {
         // Recursively convert expression to a term
         let opinfo = OpInfo::from(expr.clone());
-        let arg_ids: Vec<MulteId> = expr.args().iter().enumerate().map(|(i, arg)| {
-            let arg_id = self.add_expr(arg);
-            let props = opinfo.input_props(i);
-            let prop_id = self.pc.insert(&props);
-            (arg_id, prop_id)
-        }).collect();
+        let arg_ids: Vec<MulteId> = expr
+            .args()
+            .iter()
+            .enumerate()
+            .map(|(i, arg)| {
+                let arg_id = self.add_expr(arg);
+                let props = opinfo.input_props(i);
+                let prop_id = self.pc.insert(&props);
+                (arg_id, prop_id)
+            })
+            .collect();
         // Get properties of the operator
         let props = opinfo.output_props().clone();
         let term = MulteTerm::new(expr.op().clone(), arg_ids, props);
-
 
         // Canonicalize the term
         let canonical_term = self.canonicalize(&term);
@@ -320,7 +330,9 @@ where
             new_eclass.add_enode(new_id);
             self.eclasses.insert(new_id, new_eclass);
             for child in canonical_term.args() {
-                self.get_log_eclass_mut(&class_id(*child)).unwrap().add_parent(new_id);
+                self.get_log_eclass_mut(&class_id(*child))
+                    .unwrap()
+                    .add_parent(new_id);
             }
             new_id
         }
@@ -332,7 +344,7 @@ where
         Term<T>: Clone + Eq + Hash + Debug,
         A: Analysis,
     {
-        match pattern.op(){
+        match pattern.op() {
             OpOrVar::Var(s) => {
                 // If the expression is a variable, we need to substitute it with the corresponding Id
                 if let Some(&id) = subst.get(s) {
@@ -341,15 +353,20 @@ where
                     panic!("Variable {} not found in substitution map", s);
                 }
             }
-            OpOrVar::Op(op) => {    
+            OpOrVar::Op(op) => {
                 // Recursively convert expression to a term
                 let opinfo = OpInfo::from(pattern.clone());
-                let arg_ids: Vec<MulteId> = pattern.args().iter().enumerate().map(|(i, arg)| {
-                    let arg_id = self.add_enode_match(arg, subst);
-                    let props = opinfo.input_props(i);
-                    let prop_id = self.pc.insert(&props);
-                    (arg_id, prop_id)
-                }).collect();
+                let arg_ids: Vec<MulteId> = pattern
+                    .args()
+                    .iter()
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        let arg_id = self.add_enode_match(arg, subst);
+                        let props = opinfo.input_props(i);
+                        let prop_id = self.pc.insert(&props);
+                        (arg_id, prop_id)
+                    })
+                    .collect();
 
                 // Get properties of the operator
                 let props = opinfo.output_props().clone();
@@ -371,7 +388,9 @@ where
                     new_eclass.add_enode(new_id);
                     self.eclasses.insert(new_id, new_eclass);
                     for child in canonical_term.args() {
-                        self.get_log_eclass_mut(&class_id(*child)).unwrap().add_parent(new_id);
+                        self.get_log_eclass_mut(&class_id(*child))
+                            .unwrap()
+                            .add_parent(new_id);
                     }
                     new_id
                 }
@@ -382,7 +401,12 @@ where
     /// Match an expression against an EClass
     /// Returns a vector of substitutions that match the expression against the EClass
     // FIXME: Matching on properties is not implemented yet
-    pub fn ematch(&self, pattern: &Pattern<T>, eclass: MulteId, subst: &Subst<Var, Id>) -> Vec<Subst<Var, Id>> {
+    pub fn ematch(
+        &self,
+        pattern: &Pattern<T>,
+        eclass: MulteId,
+        subst: &Subst<Var, Id>,
+    ) -> Vec<Subst<Var, Id>> {
         fn insert_subst(var: &Var, eclass: Id, subst: &Subst<Var, Id>) -> Option<Subst<Var, Id>> {
             let mut subst_clone = subst.clone();
             if let Some(id) = subst_clone.insert(var.clone(), eclass) {
@@ -394,7 +418,6 @@ where
             Some(subst_clone) // Return the substitution map with the variable added
         }
 
-
         let mut res = vec![];
         match pattern.op() {
             OpOrVar::Var(s) => {
@@ -404,14 +427,14 @@ where
                     res.push(subst_clone); // Return the substitution map with the constant added
                 }
                 return res;
-            },
+            }
             OpOrVar::Op(_expr) => {
                 // If expression is a constant, try to find an ENode in the class that matches
                 if pattern.is_terminal() {
                     for node in self.get_prop_eclass_by_id(&eclass) {
                         if node.term.matches_pattern(pattern) {
                             let mut subst_clone = subst.clone();
-                            subst_clone.insert(String::from(""), 0);    // FIXME: this is hacky
+                            subst_clone.insert(String::from(""), 0); // FIXME: this is hacky
                             res.push(subst_clone);
                             return res;
                         }
@@ -441,7 +464,7 @@ where
                 }
             }
         }
-        
+
         res
     }
 
@@ -504,6 +527,7 @@ where
     where
         MulteTerm<T, P>: Clone + Eq + Hash + Debug,
     {
+        // TODO: Optimizations to update prop sats
         let eclass = self.get_log_eclass(&id).unwrap().clone();
 
         let mut new_parents: IndexMap<MulteTerm<T, P>, Id> = IndexMap::new();
@@ -544,8 +568,10 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::hash::Hasher;
     use lattices::*;
+    use std::hash::Hasher;
+
+    use crate::impl_ast_default;
 
     use super::*;
 
@@ -569,7 +595,9 @@ mod tests {
         }
     }
 
-    impl AST for TestOp {}
+    impl AST for TestOp {
+        impl_ast_default!();
+    }
 
     // Test properties for testing
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
@@ -818,10 +846,7 @@ mod tests {
 
         // Variable should match any eclass
         assert_eq!(matches.len(), 1);
-        assert_eq!(
-            matches[0].get("x"),
-            Some(&const_id)
-        );
+        assert_eq!(matches[0].get("x"), Some(&const_id));
     }
 
     #[test]
@@ -863,10 +888,7 @@ mod tests {
         // Should match with x = const(1)
         assert_eq!(matches.len(), 1);
         let const1_id = egraph.add_expr(&const1);
-        assert_eq!(
-            matches[0].get("x"),
-            Some(&const1_id)
-        );
+        assert_eq!(matches[0].get("x"), Some(&const1_id));
     }
 
     #[test]
@@ -1134,9 +1156,6 @@ mod tests {
         assert_eq!(matches.len(), 1);
         let expected_mul_id =
             egraph.add_expr(&make_mul_expr(make_var_expr("x"), make_const_expr(2)));
-        assert_eq!(
-            matches[0].get("y"),
-            Some(&expected_mul_id)
-        );
+        assert_eq!(matches[0].get("y"), Some(&expected_mul_id));
     }
 }
