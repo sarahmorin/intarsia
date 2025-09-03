@@ -1,13 +1,10 @@
 /// UnionFind
 /// Simple data structure to hold equivalence classes.
-use crate::types::Id;
-
 #[derive(Debug, Clone)]
 pub struct UnionFind {
-    parent: Vec<Id>,
+    parent: Vec<usize>,
 }
 
-#[allow(dead_code)] // FIXME: Remove
 impl UnionFind {
     /// Create a new UnionFind
     pub fn new() -> Self {
@@ -15,14 +12,14 @@ impl UnionFind {
     }
 
     /// Add a new set
-    pub fn add_set(&mut self) -> Id {
+    pub fn add_set(&mut self) -> usize {
         let index = self.parent.len();
         self.parent.push(index);
         index
     }
 
     /// Find the root of the set containing `id`.
-    pub fn find(&self, id: Id) -> Id {
+    pub fn find(&self, id: usize) -> usize {
         let mut curr_id = id;
         while curr_id != self.parent[curr_id] {
             curr_id = self.parent[curr_id];
@@ -31,7 +28,7 @@ impl UnionFind {
     }
 
     /// Find the root of the set containing `x` with path compression.
-    pub fn find_compress(&mut self, id: Id) -> Id {
+    pub fn find_compress(&mut self, id: usize) -> usize {
         // Find the canonical representative of the set containing `id` with path compression
         let mut curr_id = id;
         while curr_id != self.parent[curr_id] {
@@ -44,7 +41,7 @@ impl UnionFind {
 
     /// Union two sets containing `id1` and `id2` and return the root id of the new set.
     /// The set with the smaller root id becomes the parent of the other.
-    pub fn union(&mut self, id1: Id, id2: Id) -> Id {
+    pub fn union(&mut self, id1: usize, id2: usize) -> usize {
         // TODO: Do we need to actually do the find, or should we just assume the caller
         // already did a find?
         let root1 = self.find(id1);
@@ -62,7 +59,7 @@ impl UnionFind {
     }
 
     /// Get list of all root elements.
-    pub fn roots(&self) -> Vec<Id> {
+    pub fn roots(&self) -> Vec<usize> {
         let mut roots = Vec::new();
         for (i, &parent) in self.parent.iter().enumerate() {
             if i == parent {
@@ -247,7 +244,7 @@ mod tests {
         let mut uf = UnionFind::new();
 
         // Create 6 sets
-        let ids: Vec<Id> = (0..6).map(|_| uf.add_set()).collect();
+        let ids: Vec<usize> = (0..6).map(|_| uf.add_set()).collect();
 
         // Initially, all should be separate roots
         assert_eq!(uf.roots().len(), 6);
@@ -293,7 +290,7 @@ mod tests {
         let mut uf = UnionFind::new();
 
         // Create a long chain by careful unions
-        let ids: Vec<Id> = (0..5).map(|_| uf.add_set()).collect();
+        let ids: Vec<usize> = (0..5).map(|_| uf.add_set()).collect();
 
         // Manually create a chain by setting parents directly
         // This simulates what could happen with multiple unions
