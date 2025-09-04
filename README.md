@@ -150,3 +150,45 @@ Some options, in no particular order:
 
 ### Bad Ideas, do we need to explicitly prevent them?
 - [ ] Recursive map functions, ideally properties won't depend on other properties. The most recursion we can reasonably allow is determining the concrete value of an argument and passing it back up, not computing properties at every level.
+
+
+# Development Plan (very tentative)
+
+General outline:
+1. **Finish the basic multe-graph implementation** -> This will more or less mimic a traditional e-graph, but simply allow the use of properties (to little benefit)
+   1. Decide on and finish PR implementation
+   2. Resolve recent changes in rules, parser, testlang, regular e-graph etc.
+   3. Implement extraction and define cost function requirements (should be pretty basic) for both
+   4. Get a simple test going in the testlang with rules, simple PS, and a hardcoded cost function.
+2. **Define interfaces for a programmable search** -> Replace traditional e-matching with a collection of functions and structs to run a very fine grained search strategy
+   1. Decide on what operations we can break e-matching into and how granular to go (also how much info to expose to caller)
+   2. Decide on a queue/task structure for search operations (ala cascades operations, but also combine with e-graph rebuild/repair workload)
+   3. Decide on guardrails (if any) to prevent absolute chaos from ensuing (e.g. enforcing read/write phase orders)
+   4. Define the search/executor (single/multi thread) that will pop things off the worklist and do them and add more
+3. **Implement Custom Search Interfaces** -> Build the damn thing.
+   1. TBD -> once we know design, can chunk up implementation work
+4. **Build Running Example of a Custom Search** -> Cascades, Bottom-Up, Random?
+   1. Using everything built so far, build a working example of a searcher that runs the cascades style top-down search, but uses properties instead of enforcers
+   2. Also, try to do a bottom up query optimizer search
+   3. Also, maybe we build one of the random optimizers just for funsies
+   4. Honestly, this might take way more time than I think so we might need to adjust timeline here
+5. **Testing** -> At this point I might want to do some basic perf testing to see if this is moving in a useful direction
+6. **Revisit system diagram and adjust if needed** -> After doing a good chunk of work, check back in about the high level design
+   1. How do we feel about the difference between "programming and optimizer" and "running that optimizer on input"
+   2. Do we need stronger or weaker requirements anywhere?
+   3. Is there anything lacking in the pull information from outside source interface? Right now its pretty open ended, should it be more defined?
+7. **Revisit Rules/Parsing/Language Definition** -> Right now language parsing and rules is pretty basic, think about making it more elegant and programmer friendly
+   1. decide on syntax for rules, language, and property definitions
+   2. perhaps provide a way to distinguish between a source and target language (and under the hood we unify to one set of operators with "extractable" flags)
+   3. macro to generate parsers for custom languages
+   4. Also seriously consider ISLE style rewrites
+8. **Build Actual SQL parsing** -> Move on from dummy test lang to a usable SQL parser and IR
+   1. (Optionally) also add a hydro lang representation
+9.  **Work on Code Gen** -> Build up the "what happens after extraction" part
+
+## Decisions I need to make
+
+- [ ] Keep regular e-graph here or move to its own repo?
+  - I like having a very similar e-graph implementation to compare to; however, supporting both could be at the detriment of multe-graph
+- [ ] PS requirements
+  - See above
