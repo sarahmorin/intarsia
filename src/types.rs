@@ -4,66 +4,79 @@ use std::{
     hash::Hash,
 };
 
-/// Type to represent a unique identifier for an entity.
-// TODO: Go through code with a fine tooth comb to handle enum variants appropriately
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Id {
-    /// A simple eclass Id
-    Id(usize),
-    /// A multegraph e-class Id
-    Multe(usize, usize),
-    /// A property set Id
-    Prop(usize)
-}
+pub struct Id(pub usize);
 
-impl Id {
-    /// Returns the default prop set Id.
-    pub fn default_prop_set() -> Self {
-        Self::Prop(0)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct PropSetId(pub usize);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct MulteId(pub Id, pub PropSetId);
+
+impl MulteId {
+    /// Returns the logical Id
+    pub fn logical_id(&self) -> Id {
+        self.0
     }
 
-    /// Returns the logical Id from an Id::Id or MulteId
-    pub fn logical_id(&self) -> Result<usize, String> {
-        match self {
-            Id::Id(id) => Ok(*id),
-            Id::Multe(logical_id, _) => Ok(*logical_id),
-            Id::Prop(id) => Err(format!("Id::Prop({}) does not have a logical id", id)),
-        }
-    }
-
-    /// Returns the property set Id from an Id::Multe or Prop
-    pub fn propset_id(&self) -> Result<usize, String> {
-        match self {
-            Id::Multe(_, propset_id) => Ok(*propset_id),
-            Id::Prop(propset_id) => Ok(*propset_id),
-            Id::Id(id) => Err(format!("Id::Id({}) does not have a propset id", id)),
-        }
-    }
-
-    // TODO: Lookup rust conventions for conversions between enum variants
-    /// Convert an Id to a Multe
-    pub fn to_multe(&self, propset_id: usize) -> Self {
-        match self {
-            Id::Id(id) => Id::Multe(*id, propset_id),
-            Id::Multe(_, _) => self.clone(),
-            Id::Prop(_) => panic!("Cannot convert Id::Prop to Multe"),
-        }
+    /// Returns the property set Id
+    pub fn propset_id(&self) -> PropSetId {
+        self.1
     }
 }
 
 impl Display for Id {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Id::Id(id) => write!(f, "Id({})", id),
-            Id::Multe(logical_id, propset_id) => write!(f, "Multe({}, {})", logical_id, propset_id),
-            Id::Prop(propset_id) => write!(f, "Prop({})", propset_id),
-        }
+        write!(f, "Id({})", self.0)
+    }
+}
+
+impl Display for PropSetId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PropSetId({})", self.0)
+    }
+}
+
+impl Display for MulteId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "MulteId({}, {})", self.0, self.1)
+    }
+}
+
+impl Id {
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl PropSetId {
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+// Additional From implementations for convenience
+impl From<usize> for PropSetId {
+    fn from(id: usize) -> Self {
+        PropSetId(id)
+    }
+}
+
+impl From<MulteId> for Id {
+    fn from(multe_id: MulteId) -> Self {
+        multe_id.0
     }
 }
 
 impl From<usize> for Id {
     fn from(id: usize) -> Self {
-        Id::Id(id)
+        Id(id)
+    }
+}
+
+impl From<Id> for MulteId {
+    fn from(id: Id) -> Self {
+        MulteId(id, PropSetId(0)) // Default propset id to 0
     }
 }
 
@@ -152,7 +165,7 @@ where
     L: OpLang,
 {
     op: L,
-    propset: Id,
+    propset: PropSetId,
     args: Vec<Expr<L>>,
 }
 
@@ -161,7 +174,7 @@ where
     L: OpLang,
 {
     /// Creates a new expression with the given operator and arguments.
-    pub fn new(op: L, propset: Id, args: Vec<Expr<L>>) -> Self {
+    pub fn new(op: L, propset: PropSetId, args: Vec<Expr<L>>) -> Self {
         Self { op, propset, args }
     }
 
@@ -176,7 +189,7 @@ where
     }
 
     /// Returns PropertySet Id of the expression
-    pub fn propset(&self) -> &Id {
+    pub fn propset(&self) -> &PropSetId {
         &self.propset
     }
 
@@ -288,7 +301,7 @@ where
     L: OpLang,
 {
     op: L,
-    args: Vec<Id>,
+    args: Vec<MulteId>,
 }
 
 impl<L> Term<L>
@@ -296,7 +309,7 @@ where
     L: OpLang,
 {
     /// Creates a new term with the given operator and arguments.
-    pub fn new(op: L, args: Vec<Id>) -> Self {
+    pub fn new(op: L, args: Vec<MulteId>) -> Self {
         Self { op, args }
     }
 
@@ -306,7 +319,7 @@ where
     }
 
     /// Returns the arguments of the term.
-    pub fn args(&self) -> &Vec<Id> {
+    pub fn args(&self) -> &Vec<MulteId> {
         &self.args
     }
 

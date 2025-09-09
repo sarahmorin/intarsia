@@ -153,7 +153,7 @@ where
 
     /// Get list of unique identifiers for all EClasses in the EGraph
     pub fn eclass_ids(&self) -> Vec<Id> {
-        self.uf.roots().iter().map(|id| Id::from(*id)).collect()
+        self.uf.roots().iter().map(|id| Id(*id)).collect()
     }
 
     /// Get EClass by its unique identifier
@@ -201,30 +201,43 @@ where
     }
 
     /// Get nodes in an EClass
-    /// The EClass can be either logical (Id::Id(x) or Id::Multe(x, 0)) or property-based (Id::Multe(x, props))
+    /// For logical EClasses, pass the logical Id. For property-based searches, use get_enodes_by_propset instead.
     pub fn get_enodes_in_eclass(&self, id: &Id) -> Vec<&ENode<L>> {
-        match id {
-            Id::Id(_)
-            | Id::Multe(_, 0) => self.get_eclass(id).unwrap().get_enodes().iter().map(|enode_id| self.get_enode(enode_id).unwrap()).collect(),
-            Id::Multe(x, props) => {
-                if let Some(prop_set) = self.pc.get_by_id(props) {
-                    self.get_enodes_by_propset(id, prop_set)
-                } else {
-                    Vec::new()
-                }
+        self.get_eclass(id).unwrap().get_enodes().iter().map(|enode_id| self.get_enode(enode_id).unwrap()).collect()
+    }
+
+    // FIXME: This is so slow and gross
+    /// Get nodes in an EClass that satisfy a specific property set
+    pub fn get_enodes_in_eclass_with_props(&self, multe_id: &MulteId) -> Vec<&ENode<L>> {
+        let logical_id = &multe_id.logical_id();
+        let prop_id = &multe_id.propset_id();
+        if prop_id.as_usize() == 0 {
+            // Default property set - return all nodes in logical eclass
+            self.get_enodes_in_eclass(logical_id)
+        } else {
+            // Filter by property set
+            if let Some(prop_set) = self.pc.get_by_id(prop_id) {
+                self.get_enodes_by_propset(logical_id, prop_set)
+            } else {
+                Vec::new()
             }
-            _ => Vec::new(),
         }
     }
 
     /// Get Ids of ENodes in an EClass
     pub fn get_enode_ids_in_eclass(&self, id: &Id) -> Vec<Id> {
-        match id {
-            Id::Id(_)
-            | Id::Multe(_, 0) => self.get_eclass(id).unwrap().get_enodes().clone(),
-            Id::Multe(x, props) => todo!("Implement get_enode_ids_in_eclass for property eclass"),
-            // QUESTION: Do we want to allow the property search for enodes that satisfy a propset irrespective of eclass?
-            Id::Prop(_) => todo!("Implement get_enode_ids_in_eclass for property eclass"),
+        self.get_eclass(id).unwrap().get_enodes().clone()
+    }
+
+    /// Get Ids of ENodes in an EClass with property filtering
+    pub fn get_enode_ids_in_eclass_with_props(&self, multe_id: &MulteId) -> Vec<Id> {
+        let logical_id = &multe_id.logical_id();
+        let prop_id = &multe_id.propset_id();
+        if prop_id.as_usize() == 0 {
+            self.get_enode_ids_in_eclass(logical_id)
+        } else {
+            // TODO: Implement property-based filtering for enode ids
+            todo!("Implement get_enode_ids_in_eclass for property eclass")
         }
     }
 
@@ -235,19 +248,22 @@ where
 
     /// Find the canonical representative of the e-class containing `id`
     pub fn find(&self, id: Id) -> Id {
-        Id::from(self.uf.find(id.logical_id().unwrap()))
+        self.uf.find(id.as_usize()).into()
     }
 
     /// Find the canonical representative of the e-class containing `id` with path compression
     pub fn find_compress(&mut self, id: Id) -> Id {
-        Id::from(self.uf.find_compress(id.logical_id().unwrap()))
+        self.uf.find_compress(id.as_usize()).into()
     }
 
     /// Union two logical EClasses
     pub fn union(&mut self, id1: Id, id2: Id) -> Id {
-        let u1 = id1.logical_id().unwrap_or_else(|id1| panic!("Cannot union non-logical id: {}", id1));
-        let u2 = id2.logical_id().unwrap_or_else(|id2| panic!("Cannot union non-logical id: {}", id2));
-        Id::Multe(self.uf.union(u1, u2), 0)
+        self.uf.union(id1.as_usize(), id2.as_usize()).into()
+    }
+
+    /// Add a new set to the UnionFind and return its Id
+    pub fn add_set(&mut self) -> Id {
+        self.uf.add_set().into()
     }
 
     /// Canonicalize a term by finding the canonical representative of its argument EClasses
@@ -257,7 +273,7 @@ where
         let args = term
             .args()
             .iter()
-            .map(|&arg| self.find(arg))
+            .map(|arg| MulteId(self.find(arg.logical_id()), arg.propset_id()))
             .collect();
         Term::new(op, args)
     }
@@ -266,18 +282,18 @@ where
     /// Recursively converts the Expr to a Term, canonicalizes it, and adds it to the EGraph
     pub fn add_expr(&mut self, expr: &Expr<L>) -> Id {
         // Recursively convert expression to a term
-        let arg_ids: Vec<Id> = expr
+        let arg_ids: Vec<MulteId> = expr
             .args()
             .iter()
             .enumerate()
             .map(|(i, arg)| {
                 let arg_id = self.add_expr(arg);
-                // FIXME: this is a lot of recursion, consider caching results
                 let props = (self.pinfo.expr_arg_props)(expr, i);
                 let prop_id = self.pc.insert(&props);
-                arg_id.to_multe(prop_id)
+                MulteId(arg_id, prop_id)
             })
             .collect();
+        
         // Get properties of the operator
         let term = Term::new(expr.op().clone(), arg_ids);
 
@@ -289,7 +305,7 @@ where
         if let Some(&id) = self.hc.get(&canonical_term) {
             id
         } else {
-            let new_id = Id::Id(self.uf.add_set());
+            let new_id = self.add_set();
             self.hc.insert(canonical_term.clone(), new_id);
             let enode = ENode::new(new_id, canonical_term.clone());
             self.enodes.insert(new_id, enode);
@@ -297,7 +313,7 @@ where
             new_eclass.add_enode(new_id);
             self.eclasses.insert(new_id, new_eclass);
             for child in canonical_term.args() {
-                self.get_eclass_mut(&child)
+                self.get_eclass_mut(&child.logical_id())
                     .unwrap()
                     .add_parent(new_id);
             }
@@ -317,22 +333,22 @@ where
                 }
             }
             OpOrVar::Op(op) => {
-                let arg_ids: Vec<Id> = pattern
+                let arg_ids: Vec<MulteId> = pattern
                     .args()
                     .iter()
                     .enumerate()
                     .map(|(i, arg)| {
                         let arg_id = self.add_enode_match(arg, subst);
-                        // FIXME: this is a lot of recursion, consider caching results
-                        let prop_id = if let Some(props) = (self.pinfo.pattern_arg_props)(pattern, i) {
-                            self.pc.insert(&props)
+                        if let Some(props) = (self.pinfo.pattern_arg_props)(pattern, i) {
+                            let prop_id = self.pc.insert(&props);
+                            MulteId(arg_id, prop_id)
                         } else {
                             // FIXME: what if there's no way to generate the properties? right now default to bottom....?
-                            0
-                        };
-                        arg_id.to_multe(prop_id)
+                            MulteId(arg_id, PropSetId(0))
+                        }
                     })
                     .collect();
+                
                 // Get properties of the operator
                 let term = Term::new(op.clone(), arg_ids);
 
@@ -344,7 +360,7 @@ where
                 if let Some(&id) = self.hc.get(&canonical_term) {
                     id
                 } else {
-                    let new_id = Id::Id(self.uf.add_set());
+                    let new_id = self.add_set();
                     self.hc.insert(canonical_term.clone(), new_id);
                     let enode = ENode::new(new_id, canonical_term.clone());
                     self.enodes.insert(new_id, enode);
@@ -352,7 +368,7 @@ where
                     new_eclass.add_enode(new_id);
                     self.eclasses.insert(new_id, new_eclass);
                     for child in canonical_term.args() {
-                        self.get_eclass_mut(&child)
+                        self.get_eclass_mut(&child.logical_id())
                             .unwrap()
                             .add_parent(new_id);
                     }
@@ -369,10 +385,10 @@ where
     pub fn ematch(
         &self,
         pattern: &Pattern<L>,
-        eclass: Id,
-        subst: &Subst<Var, Id>,
-    ) -> Vec<Subst<Var, Id>> {
-        fn insert_subst(var: &Var, eclass: Id, subst: &Subst<Var, Id>) -> Option<Subst<Var, Id>> {
+        eclass: MulteId,
+        subst: &Subst<Var, MulteId>,
+    ) -> Vec<Subst<Var, MulteId>> {
+        fn insert_subst(var: &Var, eclass: MulteId, subst: &Subst<Var, MulteId>) -> Option<Subst<Var, MulteId>> {
             let mut subst_clone = subst.clone();
             if let Some(id) = subst_clone.insert(var.clone(), eclass) {
                 // If the variable was already in the substitution map, check if it matches the eclass
@@ -396,10 +412,10 @@ where
             OpOrVar::Op(_expr) => {
                 // If expression is a constant, try to find an ENode in the class that matches
                 if pattern.is_terminal() {
-                    for node in self.get_enodes_in_eclass(&eclass) {
+                    for node in self.get_enodes_in_eclass_with_props(&eclass) {
                         if node.term.matches_pattern(pattern) {
                             let mut subst_clone = subst.clone();
-                            subst_clone.insert(String::from(""), Id::Id(0)); // FIXME: this is hacky
+                            subst_clone.insert(String::from(""), MulteId(Id(0), PropSetId(0))); // FIXME: this is hacky
                             res.push(subst_clone);
                             return res;
                         }
@@ -409,7 +425,7 @@ where
 
                 // For every node in the eclass we construct a substitution (if one exists)
                 // and add those substitutions to our list of results
-                for node in self.get_enodes_in_eclass(&eclass) {
+                for node in self.get_enodes_in_eclass_with_props(&eclass) {
                     if node.term.matches_pattern(pattern) {
                         // Create list for possible substitution sets
                         let mut subst_list = vec![subst.clone()];
@@ -523,7 +539,7 @@ where
 
     /// Extract an expression from the EGraph
     /// Given an Id, find an expression that corresponds to the EClass of that Id
-    pub fn extract(&self, id: Id) -> Expr<L>
+    pub fn extract(&self, _id: Id) -> Expr<L>
     {
         todo!("Implement extraction of expression from EGraph");
     }
