@@ -1,5 +1,5 @@
-/// This module defines structure of rewrite rules
-/// Rules specify rewrite transformations on the abstract syntax tree (AST) in some language T
+/// This module defines structure of rewrite rules.
+/// Rules specify rewrite transformations on the abstract syntax tree (AST) in some language T.
 use crate::types::*;
 
 #[derive(Clone)]
@@ -41,15 +41,15 @@ pub trait RuleSet<L>
 where
     L: OpLang,
 {
-    /// Get all rules in the set
+    /// Get all rules in the set.
     fn rules(&self) -> &Vec<Rule<L>>;
-    /// Get rule by some index
+    /// Get rule by some index.
     fn get_rule(&self, i: usize) -> Option<&Rule<L>>;
-    /// Get rule by Name
+    /// Get rule by Name.
     fn get_rule_by_name(&self, name: &str) -> Option<&Rule<L>>;
-    /// Add a rule to the set
+    /// Add a rule to the set.
     fn add_rule(&mut self, rule: Rule<L>);
-    /// Remove a rule from the set
+    /// Remove a rule from the set.
     fn remove_rule(&mut self, rule: &Rule<L>);
 }
 

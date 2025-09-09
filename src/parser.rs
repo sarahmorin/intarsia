@@ -1,4 +1,4 @@
-/// Generate a parser for a given language
+/// Generate a parser for a given language.
 use crate::types::*;
 
 pub trait Parseable {
@@ -22,7 +22,7 @@ where
     L: OpLang + Parseable,
 {
 
-    /// Parse a string into an OpLang Expr node
+    /// Parse a string into an OpLang Expr node.
     pub fn parse_expr(s: &str) -> Result<Expr<L>, String> {
         let trimmed = s.trim();
 
@@ -63,7 +63,7 @@ where
         Ok(Expr::new(op, args))
     }
 
-    /// Helper function to split arguments by commas while respecting nested parentheses
+    /// Helper function to split arguments by commas while respecting nested parentheses.
     fn split_args(s: &str) -> Result<Vec<String>, String> {
         let mut args = Vec::new();
         let mut current_arg = String::new();
@@ -102,7 +102,7 @@ where
 
         Ok(args)
     }
-    /// Parse a string into an OpLang Pattern node
+    /// Parse a string into an OpLang Pattern node.
     pub fn parse_pattern(s: &str) -> Result<Pattern<L>, String> {
         let trimmed = s.trim();
 

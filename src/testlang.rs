@@ -41,7 +41,7 @@ pub enum Ops {
 }
 
 impl Parseable for Ops {
-    /// Parse a string into an Ops enum variant
+    /// Parse a string into an Ops enum variant.
     fn parse(s: &str) -> Result<Self, String> {
         let trimmed = s.trim();
 
@@ -163,7 +163,7 @@ pub struct PhysicalPropertySet {
 }
 
 impl PhysicalPropertySet {
-    /// Creates a physical property set from a sort index
+    /// Creates a physical property set from a sort index.
     // FIXME: this is dummy test implementation
     // In a real implementation, we would call out to a larger data struct to get the real column sort bitmaps
     pub fn from_cols(cols: String) -> Self {

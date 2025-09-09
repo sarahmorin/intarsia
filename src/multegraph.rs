@@ -5,16 +5,16 @@ use indexmap::IndexMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-/// ENode
-/// TODO: Add docstring
+/// ENode.
+/// TODO: Add docstring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ENode<L>
 where
     L: OpLang,
 {
-    /// Unique identifier for the ENode
+    /// Unique identifier for the ENode.
     pub id: Id,
-    /// The term associated with this ENode
+    /// The term associated with this ENode.
     pub term: Term<L>,
     // TODO: Potential property sat optimizations:
     //  - A bitmap indicating which properties are satisfied by this ENode
@@ -40,18 +40,18 @@ where
     }
 }
 
-/// EClass
+/// EClass.
 /// In the MulteGraph, an EClass is a collection of ENodes that are equivalent under the operator equivalence relation.
 /// The "EClasses" of the property equivalence relation are virtual subsets of one of these EClasses.
-/// TODO: docstring
+/// TODO: docstring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EClass
 {
-    /// Unique identifier for the EClass
+    /// Unique identifier for the EClass.
     pub id: Id,
-    /// ENodes contained in this EClass
+    /// ENodes contained in this EClass.
     enodes: Vec<Id>,
-    /// ENodes that are roots of this EClass
+    /// ENodes that are roots of this EClass.
     // QUESTION: Should this be a vector of (parent enode id, property req id)?
     parents: Vec<Id>,
     // Analysis data associated with this EClass
@@ -98,7 +98,7 @@ impl EClass
         // self.analysis.merge(other.analysis.clone());
     }
 
-    /// Merge two EClasses into a new one
+    /// Merge two EClasses into a new one.
     pub fn merge(id: Id, eclass1: &EClass, eclass2: &EClass) -> EClass {
         let enodes = vec![eclass1.enodes.clone(), eclass2.enodes.clone()].concat();
         let parents = vec![eclass1.get_parents().clone(), eclass2.get_parents().clone()].concat();
@@ -110,26 +110,26 @@ impl EClass
     }
 }
 
-/// MultEGraph
-/// TODO: documentation
+/// MultEGraph.
+/// TODO: documentation.
 pub struct EGraph<L, P>
 where
     L: OpLang,
     P: PropertySet,
 {
-    /// Set of functions used to map expressions to property sets
+    /// Set of functions used to map expressions to property sets.
     pinfo: PropInfo<L, P>,
-    /// UnionFind managing equivalence classes
+    /// UnionFind managing equivalence classes.
     uf: UnionFind,
-    /// Hashcons mapping terms to their unique identifiers
+    /// Hashcons mapping terms to their unique identifiers.
     hc: IndexMap<Term<L>, Id>,
-    /// Map of properties to Ids
+    /// Map of properties to Ids.
     pc: PropertySetMap<P>,
-    /// Map of EClasses indexed by their unique identifiers
+    /// Map of EClasses indexed by their unique identifiers.
     eclasses: IndexMap<Id, EClass>,
-    /// Map of ENodes indexed by their unique identifiers
+    /// Map of ENodes indexed by their unique identifiers.
     enodes: IndexMap<Id, ENode<L>>,
-    /// List of EClasses we need to repair
+    /// List of EClasses we need to repair.
     // TODO: We might want to make the repair list a more flexible list of tasks
     repairs: Vec<Id>,
 }
@@ -151,12 +151,12 @@ where
         }
     }
 
-    /// Get list of unique identifiers for all EClasses in the EGraph
+    /// Get list of unique identifiers for all EClasses in the EGraph.
     pub fn eclass_ids(&self) -> Vec<Id> {
         self.uf.roots().iter().map(|id| Id(*id)).collect()
     }
 
-    /// Get EClass by its unique identifier
+    /// Get EClass by its unique identifier.
     pub fn get_eclass(&self, id: &Id) -> Option<&EClass> {
         match self.eclasses.get(id) {
             Some(eclass) => {
@@ -168,7 +168,7 @@ where
         }
     }
 
-    /// Get mutable EClass by its unique identifier
+    /// Get mutable EClass by its unique identifier.
     pub fn get_eclass_mut(&mut self, id: &Id) -> Option<&mut EClass> {
         // Get a mutable reference to the e-class by its Id
         match self.eclasses.get_mut(id) {
@@ -181,7 +181,7 @@ where
         }
     }
 
-    /// Get list of nodes in an EClass that satisfy a property set
+    /// Get list of nodes in an EClass that satisfy a property set.
     /// NOTE: This does not check whether we have an existing ID for the property set.
     // TODO: Optimize
     pub fn get_enodes_by_propset(&self, parent_id: &Id, props: &P) -> Vec<&ENode<L>> {
@@ -200,14 +200,14 @@ where
         res
     }
 
-    /// Get nodes in an EClass
+    /// Get nodes in an EClass.
     /// For logical EClasses, pass the logical Id. For property-based searches, use get_enodes_by_propset instead.
     pub fn get_enodes_in_eclass(&self, id: &Id) -> Vec<&ENode<L>> {
         self.get_eclass(id).unwrap().get_enodes().iter().map(|enode_id| self.get_enode(enode_id).unwrap()).collect()
     }
 
     // FIXME: This is so slow and gross
-    /// Get nodes in an EClass that satisfy a specific property set
+    /// Get nodes in an EClass that satisfy a specific property set.
     pub fn get_enodes_in_eclass_with_props(&self, multe_id: &MulteId) -> Vec<&ENode<L>> {
         let logical_id = &multe_id.logical_id();
         let prop_id = &multe_id.propset_id();
@@ -224,12 +224,12 @@ where
         }
     }
 
-    /// Get Ids of ENodes in an EClass
+    /// Get Ids of ENodes in an EClass.
     pub fn get_enode_ids_in_eclass(&self, id: &Id) -> Vec<Id> {
         self.get_eclass(id).unwrap().get_enodes().clone()
     }
 
-    /// Get Ids of ENodes in an EClass with property filtering
+    /// Get Ids of ENodes in an EClass with property filtering.
     pub fn get_enode_ids_in_eclass_with_props(&self, multe_id: &MulteId) -> Vec<Id> {
         let logical_id = &multe_id.logical_id();
         let prop_id = &multe_id.propset_id();
@@ -241,33 +241,33 @@ where
         }
     }
 
-    /// Get ENode by its unique identifier
+    /// Get ENode by its unique identifier.
     pub fn get_enode(&self, id: &Id) -> Option<&ENode<L>> {
         self.enodes.get(id)
     }
 
-    /// Find the canonical representative of the e-class containing `id`
+    /// Find the canonical representative of the e-class containing `id`.
     pub fn find(&self, id: Id) -> Id {
         self.uf.find(id.as_usize()).into()
     }
 
-    /// Find the canonical representative of the e-class containing `id` with path compression
+    /// Find the canonical representative of the e-class containing `id` with path compression.
     pub fn find_compress(&mut self, id: Id) -> Id {
         self.uf.find_compress(id.as_usize()).into()
     }
 
-    /// Union two logical EClasses
+    /// Union two logical EClasses.
     pub fn union(&mut self, id1: Id, id2: Id) -> Id {
         self.uf.union(id1.as_usize(), id2.as_usize()).into()
     }
 
-    /// Add a new set to the UnionFind and return its Id
+    /// Add a new set to the UnionFind and return its Id.
     pub fn add_set(&mut self) -> Id {
         self.uf.add_set().into()
     }
 
-    /// Canonicalize a term by finding the canonical representative of its argument EClasses
-    /// Recursively finds the representative of the EClass for each term in the argument
+    /// Canonicalize a term by finding the canonical representative of its argument EClasses.
+    /// Recursively finds the representative of the EClass for each term in the argument.
     pub fn canonicalize(&self, term: &Term<L>) -> Term<L> {
         let op = term.op().clone();
         let args = term
@@ -278,8 +278,8 @@ where
         Term::new(op, args)
     }
 
-    /// Add an Expr to the EGraph as an ENode
-    /// Recursively converts the Expr to a Term, canonicalizes it, and adds it to the EGraph
+    /// Add an Expr to the EGraph as an ENode.
+    /// Recursively converts the Expr to a Term, canonicalizes it, and adds it to the EGraph.
     pub fn add_expr(&mut self, expr: &Expr<L>) -> Id {
         // Recursively convert expression to a term
         let arg_ids: Vec<MulteId> = expr
@@ -321,7 +321,7 @@ where
         }
     }
 
-    /// Insert an ENode from an Expr and Substitution into the EGraph
+    /// Insert an ENode from an Expr and Substitution into the EGraph.
     pub fn add_enode_match(&mut self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Id {
         match pattern.op() {
             OpOrVar::Var(s) => {
@@ -378,9 +378,9 @@ where
         }
     }
 
-    /// Match an expression against an EClass
-    /// Returns a vector of substitutions that match the expression against the EClass
-    /// NOTE: This is traditional, boring ematching just for the sake of making sure I didn't break that with the Ids
+    /// Match an expression against an EClass.
+    /// Returns a vector of substitutions that match the expression against the EClass.
+    /// NOTE: This is traditional, boring ematching just for the sake of making sure I didn't break that with the Ids.
     // FIXME: Matching on properties is not implemented yet
     pub fn ematch(
         &self,
@@ -449,7 +449,7 @@ where
         res
     }
 
-    /// Merge two EClasses in the EGraph
+    /// Merge two EClasses in the EGraph.
     pub fn merge(&mut self, id1: Id, id2: Id) -> Id {
         // Find the canonical representatives of the e-classes containing `id1` and `id2`
         let par1 = self.find_compress(id1);
@@ -480,8 +480,8 @@ where
     }
 
     // TODO: Update rebuild and repair to reflect the multegraph structure
-    /// Rebuild the e-graph
-    /// This function should be called after a series of merges to restore the invariants of the e-graph
+    /// Rebuild the e-graph.
+    /// This function should be called after a series of merges to restore the invariants of the e-graph.
     pub fn rebuild(&mut self) {
         while self.repairs.len() > 0 {
             // Copy current repair list to a temporary list of canonical Ids and remove duplicates
@@ -503,7 +503,7 @@ where
         }
     }
 
-    /// Repair an EClass
+    /// Repair an EClass.
     pub fn repair(&mut self, id: Id)
     where
         Term<L>: Clone + Eq + Hash + Debug,
@@ -537,8 +537,8 @@ where
         }
     }
 
-    /// Extract an expression from the EGraph
-    /// Given an Id, find an expression that corresponds to the EClass of that Id
+    /// Extract an expression from the EGraph.
+    /// Given an Id, find an expression that corresponds to the EClass of that Id.
     pub fn extract(&self, _id: Id) -> Expr<L>
     {
         todo!("Implement extraction of expression from EGraph");

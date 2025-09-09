@@ -14,12 +14,12 @@ pub struct PropSetId(pub usize);
 pub struct MulteId(pub Id, pub PropSetId);
 
 impl MulteId {
-    /// Returns the logical Id
+    /// Returns the logical Id.
     pub fn logical_id(&self) -> Id {
         self.0
     }
 
-    /// Returns the property set Id
+    /// Returns the property set Id.
     pub fn propset_id(&self) -> PropSetId {
         self.1
     }
@@ -80,7 +80,7 @@ impl From<Id> for MulteId {
     }
 }
 
-/// Type to represent a variable in the language
+/// Type to represent a variable in the language.
 pub type Var = String;
 
 /// Type alias for a substitution map.
@@ -109,7 +109,7 @@ pub trait OpLang: Clone + Debug + PartialEq + Eq + Display + Hash {
     /// Returns the operator of the OpLang node.
     fn op(&self) -> &Self::Operator;
 
-    /// Returns arity of the operator
+    /// Returns arity of the operator.
     // TODO: What if people want variable length input?
     fn arity(&self) -> usize;
 
@@ -117,8 +117,8 @@ pub trait OpLang: Clone + Debug + PartialEq + Eq + Display + Hash {
     fn is_extractable(&self) -> bool;
 }
 
-/// Macro to implement the default OpLang trait for simple languages
-/// Note: This is largely for testing utility
+/// Macro to implement the default OpLang trait for simple languages.
+/// Note: This is largely for testing utility.
 // TODO: Move to a test util library instead of here
 #[macro_export]
 macro_rules! impl_ast_default {
@@ -142,7 +142,7 @@ macro_rules! impl_ast_default {
 /// It need only implement the `PartialOrd` trait and provide a bottom element.
 /// Note: Implement `PartialOrd` for your property set. Deriving the trait is likely not the behavior you need here.
 pub trait PropertySet: Clone + Debug + PartialEq + Eq + PartialOrd + Display + Hash {
-    /// Returns the "no properties" bottom element of the property set
+    /// Returns the "no properties" bottom element of the property set.
     fn bottom() -> Self;
 
     /// Returns a vector of `n` bottom elements of the property set.
@@ -154,11 +154,11 @@ pub trait PropertySet: Clone + Debug + PartialEq + Eq + PartialOrd + Display + H
     }
 }
 
-/// Generic Recursive Expression structure
+/// Generic Recursive Expression structure.
 /// An expression is fully defined, i.e. it does not contain any unbound variables.
 /// Since an expression is fully defined, we can evaluate its properties.
 /// If working in a language without properties, we simply set propset to 0.
-/// Typically we use the expression to represent the input expression to the system
+/// Typically we use the expression to represent the input expression to the system.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Expr<L>
 where
@@ -178,7 +178,7 @@ where
         Self { op, propset: None, args }
     }
 
-    /// Sets the PropertySetId of the expression
+    /// Sets the PropertySetId of the expression.
     pub fn set_propset(&mut self, propset: PropSetId) {
         self.propset = Some(propset);
     }
@@ -193,7 +193,7 @@ where
         &self.args
     }
 
-    /// Returns PropertySet Id of the expression
+    /// Returns PropertySet Id of the expression.
     pub fn propset(&self) -> &Option<PropSetId> {
         &self.propset
     }
@@ -222,7 +222,7 @@ where
 // - also (potentially) need a way to distinguish between dependency on nothing and dependency only on operator??
 
 /// Enum to represent either an expression or a variable.
-/// This is useful for representing patterns in rewrite rules
+/// This is useful for representing patterns in rewrite rules.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum OpOrVar<L>
 where
@@ -275,13 +275,13 @@ where
         self.args.is_empty()
     }
 
-    /// Returns true if pattern in a variable
+    /// Returns true if pattern in a variable.
     pub fn is_var(&self) -> bool {
         matches!(self.op(), OpOrVar::Var(_))
     }
 }
 
-/// Create a Pattern from a variable String
+/// Create a Pattern from a variable String.
 /// ```
 /// // Create Pattern {op: OpOrVar::Var("?x"), args: []}
 /// let pattern_var = Pattern::from("?x");
@@ -298,7 +298,7 @@ where
     }
 }
 
-/// Generic Term structure
+/// Generic Term structure.
 /// Represents a term in a hashconsed structure. Rather than storing arguments directly,
 /// it stores identifiers which might point to a set of equivalent argument nodes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -339,7 +339,7 @@ where
         self.op() == expr.op() && self.args().len() == expr.args().len()
     }
 
-    /// Returns true if term matches pattern in operator and arity
+    /// Returns true if term matches pattern in operator and arity.
     /// Note: This does not check properties or arguments.
     pub fn matches_pattern(&self, pattern: &Pattern<L>) -> bool {
         match pattern.op() {
@@ -348,7 +348,7 @@ where
         }
     }
 
-    /// Returns true if the term satisfies a property set
+    /// Returns true if the term satisfies a property set.
     /// Note: This does not check properties or arguments.
     // FIXME: this needs a real solution
     pub fn satisfies_property<P>(&self, _props: &P) -> bool

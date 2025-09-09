@@ -10,7 +10,7 @@ impl<P> PropertySetMap<P>
 where
     P: PropertySet,
 {
-    /// Creates a new, empty PropertySetMap
+    /// Creates a new, empty PropertySetMap.
     pub fn new() -> Self {
         let mut props = BiMap::new();
         props.insert(P::bottom(), PropSetId(0)); // Insert bottom property with ID 0

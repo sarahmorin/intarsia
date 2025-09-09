@@ -1,4 +1,4 @@
-/// UnionFind
+/// UnionFind.
 /// Simple data structure to hold equivalence classes.
 #[derive(Debug, Clone)]
 pub struct UnionFind {
@@ -6,12 +6,12 @@ pub struct UnionFind {
 }
 
 impl UnionFind {
-    /// Create a new UnionFind
+    /// Create a new UnionFind.
     pub fn new() -> Self {
         Self { parent: Vec::new() }
     }
 
-    /// Add a new set
+    /// Add a new set.
     pub fn add_set(&mut self) -> usize {
         let index = self.parent.len();
         self.parent.push(index);
