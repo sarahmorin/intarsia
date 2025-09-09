@@ -629,19 +629,19 @@ mod tests {
     }
 
     fn make_const_expr(n: i32) -> Expr<TestOp> {
-        Expr::new(TestOp::Const(n), PropSetId(0), vec![])
+        Expr::new(TestOp::Const(n), vec![])
     }
 
     fn make_var_expr(name: &str) -> Expr<TestOp> {
-        Expr::new(TestOp::Var(name.to_string()), PropSetId(0), vec![])
+        Expr::new(TestOp::Var(name.to_string()), vec![])
     }
 
     fn make_add_expr(left: Expr<TestOp>, right: Expr<TestOp>) -> Expr<TestOp> {
-        Expr::new(TestOp::Add, PropSetId(0), vec![left, right])
+        Expr::new(TestOp::Add, vec![left, right])
     }
 
     fn make_mul_expr(left: Expr<TestOp>, right: Expr<TestOp>) -> Expr<TestOp> {
-        Expr::new(TestOp::Mul, PropSetId(0), vec![left, right])
+        Expr::new(TestOp::Mul, vec![left, right])
     }
 
     // Helper functions for creating patterns with variables

@@ -165,8 +165,8 @@ where
     L: OpLang,
 {
     op: L,
-    propset: PropSetId,
     args: Vec<Expr<L>>,
+    propset: Option<PropSetId>, // PropertySetId of the expression
 }
 
 impl<L> Expr<L>
@@ -174,8 +174,13 @@ where
     L: OpLang,
 {
     /// Creates a new expression with the given operator and arguments.
-    pub fn new(op: L, propset: PropSetId, args: Vec<Expr<L>>) -> Self {
-        Self { op, propset, args }
+    pub fn new(op: L, args: Vec<Expr<L>>) -> Self {
+        Self { op, propset: None, args }
+    }
+
+    /// Sets the PropertySetId of the expression
+    pub fn set_propset(&mut self, propset: PropSetId) {
+        self.propset = Some(propset);
     }
 
     /// Returns the operator of the expression.
@@ -189,7 +194,7 @@ where
     }
 
     /// Returns PropertySet Id of the expression
-    pub fn propset(&self) -> &PropSetId {
+    pub fn propset(&self) -> &Option<PropSetId> {
         &self.propset
     }
 
@@ -208,7 +213,7 @@ where
     L: OpLang,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Expr(op: {}, propset: {}, args: {:?})", self.op, self.propset, self.args)
+        write!(f, "Expr(op: {}, propset: {:?}, args: {:?})", self.op, self.propset, self.args)
     }
 }
 
@@ -229,6 +234,7 @@ where
 
 /// Pattern structure for matching expressions and variables.
 /// A pattern is an expression in language L that can contain unknown variables.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Pattern<L>
 where
     L: OpLang,
