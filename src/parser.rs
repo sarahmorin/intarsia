@@ -1,30 +1,35 @@
 /// Generate a parser for a given language
 use crate::types::*;
-use std::str::FromStr;
 
-pub struct Parser<T>
-where
-    T: AST + FromStr,
-{
-    phantom: std::marker::PhantomData<T>,
+pub trait Parseable {
+    fn parse(s: &str) -> Result<Self, String>
+    where
+        Self: Sized;
 }
 
-/// Parser trait defines the behavior needed for parsing different AST nodes.
-/// The FromStr trait in AST generally covers parsing operators from strings;
-/// however, languages typically need to implement their own parsing for constants/terminals.
-impl<T> Parser<T>
+pub struct Parser<L>
 where
-    T: AST + FromStr,
-    T::Err: std::fmt::Display,
+    L: OpLang + Parseable,
 {
-    /// Parse a string into an AST Expr node
-    pub fn parse_expr(s: &str) -> Result<Expr<T>, String> {
+    phantom: std::marker::PhantomData<L>,
+}
+
+/// Parser trait defines the behavior needed for parsing different OpLang nodes.
+/// The FromStr trait in OpLang generally covers parsing operators from strings;
+/// however, languages typically need to implement their own parsing for constants/terminals.
+impl<L> Parser<L>
+where
+    L: OpLang + Parseable,
+{
+
+    /// Parse a string into an OpLang Expr node
+    pub fn parse_expr(s: &str) -> Result<Expr<L>, String> {
         let trimmed = s.trim();
 
         // Check if this is a terminal (no parentheses)
         if !trimmed.contains('(') {
             // Terminal expression - just parse the operator
-            let op = T::from_str(trimmed)
+            let op = L::parse(trimmed)
                 .map_err(|e| format!("Failed to parse operator '{}': {}", trimmed, e))?;
             return Ok(Expr::new(op, vec![]));
         }
@@ -34,7 +39,7 @@ where
 
         // Extract operator name
         let op_str = &trimmed[..paren_pos];
-        let op = T::from_str(op_str)
+        let op = L::parse(op_str)
             .map_err(|e| format!("Failed to parse operator '{}': {}", op_str, e))?;
 
         // Find matching closing parenthesis
@@ -97,8 +102,8 @@ where
 
         Ok(args)
     }
-    /// Parse a string into an AST Pattern node
-    pub fn parse_pattern(s: &str) -> Result<Pattern<T>, String> {
+    /// Parse a string into an OpLang Pattern node
+    pub fn parse_pattern(s: &str) -> Result<Pattern<L>, String> {
         let trimmed = s.trim();
 
         // Check if this is a variable (starts with '?')
@@ -109,16 +114,16 @@ where
                 return Err("Variable name cannot be empty after '?'".to_string());
             }
             let op_or_var = OpOrVar::Var(var_name.to_string());
-            return Ok(Expr::new(op_or_var, vec![]));
+            return Ok(Pattern::new(op_or_var, vec![]));
         }
 
         // Check if this is a terminal operator (no parentheses)
         if !trimmed.contains('(') {
             // Terminal expression - parse the operator and wrap in OpOrVar::Op
-            let op = T::from_str(trimmed)
+            let op = L::parse(trimmed)
                 .map_err(|e| format!("Failed to parse operator '{}': {}", trimmed, e))?;
             let op_or_var = OpOrVar::Op(op);
-            return Ok(Expr::new(op_or_var, vec![]));
+            return Ok(Pattern::new(op_or_var, vec![]));
         }
 
         // Find the first opening parenthesis
@@ -126,7 +131,7 @@ where
 
         // Extract operator name
         let op_str = &trimmed[..paren_pos];
-        let op = T::from_str(op_str)
+        let op = L::parse(op_str)
             .map_err(|e| format!("Failed to parse operator '{}': {}", op_str, e))?;
         let op_or_var = OpOrVar::Op(op);
 
@@ -148,7 +153,7 @@ where
             }
         }
 
-        Ok(Expr::new(op_or_var, args))
+        Ok(Pattern::new(op_or_var, args))
     }
 }
 

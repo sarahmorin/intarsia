@@ -1,8 +1,8 @@
 mod multegraph;
-// mod parser;
+mod parser;
 mod propertymap;
-// mod rule;
-// mod testlang;
+mod rule;
+mod testlang;
 mod types;
 mod unionfind;
 

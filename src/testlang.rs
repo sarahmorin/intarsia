@@ -1,5 +1,5 @@
 use crate::impl_ast_default;
-use crate::parser::Parser;
+use crate::parser::{Parseable, Parser};
 use crate::types::*;
 use bitmaps::Bitmap;
 /// A stand in language for testing purposes.
@@ -40,10 +40,9 @@ pub enum Ops {
     HashJoin,
 }
 
-impl FromStr for Ops {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+impl Parseable for Ops {
+    /// Parse a string into an Ops enum variant
+    fn parse(s: &str) -> Result<Self, String> {
         let trimmed = s.trim();
 
         match trimmed {
@@ -129,8 +128,31 @@ impl Display for Ops {
     }
 }
 
-impl AST for Ops {
+impl OpLang for Ops {
     impl_ast_default!();
+
+    fn arity(&self) -> usize {
+        match self {
+            // Constants have arity 0
+            Ops::Col(_) | Ops::Table(_) | Ops::ConstStr(_) | Ops::ConstInt(_) | Ops::ConstBool(_) => 0,
+            // Comparison operators have arity 2
+            Ops::Eq | Ops::Neq | Ops::Lt | Ops::Gt | Ops::Le | Ops::Ge => 2,
+            // Boolean operators
+            Ops::Not => 1,
+            Ops::And | Ops::Or => 2,
+            // Logical query ops
+            Ops::Get => 2,      // Get(Table, Column)
+            Ops::Filter => 2,   // Filter(Input, Condition)
+            Ops::Join => 3,     // Join(Left, Right, Condition)
+            Ops::Project => 2,  // Project(Input, Columns)
+            // Physical query ops
+            Ops::Scan => 1,         // Scan(Table)
+            Ops::IndexScan => 2,    // IndexScan(Table, Column)
+            Ops::Sort => 2,         // Sort(Input, Columns)
+            Ops::NLJoin => 3,       // NLJoin(Left, Right, Condition)
+            Ops::HashJoin => 3,     // HashJoin(Left, Right, Condition)
+        }
+    }
 }
 
 /// Represents a physical property set for query optimization.
@@ -185,11 +207,7 @@ impl Display for PhysicalPropertySet {
     }
 }
 
-impl Property for PhysicalPropertySet {
-    fn contains(&self, other: &Self) -> bool {
-        self.sort & other.sort == other.sort
-    }
-
+impl PropertySet for PhysicalPropertySet {
     fn bottom() -> Self {
         Self {
             sort: Bitmap::new(),
@@ -199,13 +217,7 @@ impl Property for PhysicalPropertySet {
 
 impl PartialOrd for PhysicalPropertySet {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if self.contains(other) {
-            Some(std::cmp::Ordering::Greater)
-        } else if other.contains(self) {
-            Some(std::cmp::Ordering::Less)
-        } else {
-            Some(std::cmp::Ordering::Equal)
-        }
+        self.sort.partial_cmp(&other.sort)
     }
 }
 
@@ -218,124 +230,77 @@ impl From<Ops> for PhysicalPropertySet {
     }
 }
 
-impl From<Expr<Ops>> for OpInfo<PhysicalPropertySet> {
-    fn from(expr: Expr<Ops>) -> Self {
-        match expr.op() {
-            Ops::IndexScan => {
-                let c = expr
-                    .args()
-                    .get(1)
-                    .unwrap_or_else(|| panic!("IndexScan requires at least 2 arguments"));
-                let col_prop = PhysicalPropertySet::from(c.op().clone());
-                OpInfo::new(
-                    2,
-                    col_prop.clone(),
-                    vec![PhysicalPropertySet::bottom(), col_prop],
-                )
-            }
-            _ => OpInfo::default(expr.args().len()),
-        }
-    }
-}
-
-impl From<Pattern<Ops>> for OpInfo<PhysicalPropertySet> {
-    fn from(pattern: Pattern<Ops>) -> Self {
-        match pattern.op() {
-            OpOrVar::Op(Ops::IndexScan) => {
-                let c = match pattern
-                    .args()
-                    .get(1)
-                    .unwrap_or_else(|| panic!("IndexScan requires at least 2 arguments"))
-                    .op()
-                {
-                    OpOrVar::Op(op) => op,
-                    OpOrVar::Var(v) => panic!("Expected concrete operator, found variable: {}", v),
-                };
-                let col_prop = PhysicalPropertySet::from(c.clone());
-                OpInfo::new(
-                    2,
-                    col_prop.clone(),
-                    vec![PhysicalPropertySet::bottom(), col_prop],
-                )
-            }
-            _ => OpInfo::default(pattern.args().len()),
-        }
-    }
-}
-
-impl PropLang<Ops, PhysicalPropertySet> for Expr<Ops> {}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_parse_boolean_constants() {
-        let result = Ops::from_str("true");
+        let result = Ops::parse("true");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstBool(true));
 
-        let result = Ops::from_str("false");
+        let result = Ops::parse("false");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstBool(false));
     }
 
     #[test]
     fn test_parse_integer_constants() {
-        let result = Ops::from_str("100");
+        let result = Ops::parse("100");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(100));
 
-        let result = Ops::from_str("-2");
+        let result = Ops::parse("-2");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(-2));
 
-        let result = Ops::from_str("0");
+        let result = Ops::parse("0");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(0));
     }
 
     #[test]
     fn test_parse_col_and_table() {
-        let result = Ops::from_str("Col[x]");
+        let result = Ops::parse("Col[x]");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Col("x".to_string()));
 
-        let result = Ops::from_str("Table[users]");
+        let result = Ops::parse("Table[users]");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Table("users".to_string()));
 
-        let result = Ops::from_str("Col[some_column]");
+        let result = Ops::parse("Col[some_column]");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Col("some_column".to_string()));
     }
 
     #[test]
-    fn test_parse_operators() {
-        let result = Ops::from_str("And");
+    fn test_parseerators() {
+        let result = Ops::parse("And");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::And);
 
-        let result = Ops::from_str("Or");
+        let result = Ops::parse("Or");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Or);
 
-        let result = Ops::from_str("Not");
+        let result = Ops::parse("Not");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Not);
 
-        let result = Ops::from_str("Eq");
+        let result = Ops::parse("Eq");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::Eq);
     }
 
     #[test]
     fn test_parse_string_constants() {
-        let result = Ops::from_str("hello");
+        let result = Ops::parse("hello");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstStr("hello".to_string()));
 
-        let result = Ops::from_str("some_string");
+        let result = Ops::parse("some_string");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstStr("some_string".to_string()));
     }
@@ -344,22 +309,22 @@ mod tests {
     fn test_parse_variable_error() {
         // Variables starting with '?' should be parsed as string constants now
         // since the FromStr implementation doesn't reject them
-        let result = Ops::from_str("?x");
+        let result = Ops::parse("?x");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstStr("?x".to_string()));
     }
 
     #[test]
     fn test_parse_whitespace_handling() {
-        let result = Ops::from_str("  true  ");
+        let result = Ops::parse("  true  ");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstBool(true));
 
-        let result = Ops::from_str("  100  ");
+        let result = Ops::parse("  100  ");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::ConstInt(100));
 
-        let result = Ops::from_str("  And  ");
+        let result = Ops::parse("  And  ");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), Ops::And);
     }

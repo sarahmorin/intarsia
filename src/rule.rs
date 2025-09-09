@@ -3,21 +3,21 @@
 use crate::types::*;
 
 #[derive(Clone)]
-pub struct Rule<T>
+pub struct Rule<L>
 where
-    T: AST,
+    L: OpLang,
 {
     pub name: String,
-    pub pattern: Pattern<T>,
-    pub replacement: Pattern<T>,
+    pub pattern: Pattern<L>,
+    pub replacement: Pattern<L>,
     // TODO: Add priority and other annotations later
 }
 
-impl<T> Rule<T>
+impl<L> Rule<L>
 where
-    T: AST,
+    L: OpLang,
 {
-    pub fn new(name: String, pattern: Pattern<T>, replacement: Pattern<T>) -> Self {
+    pub fn new(name: String, pattern: Pattern<L>, replacement: Pattern<L>) -> Self {
         Self {
             name,
             pattern,
@@ -37,43 +37,43 @@ macro_rules! rule {
 }
 
 // TODO: We can pick more interesting structs here, could be a place to allow for user-defined organization
-pub trait RuleSet<T>
+pub trait RuleSet<L>
 where
-    T: AST,
+    L: OpLang,
 {
     /// Get all rules in the set
-    fn rules(&self) -> &Vec<Rule<T>>;
+    fn rules(&self) -> &Vec<Rule<L>>;
     /// Get rule by some index
-    fn get_rule(&self, i: usize) -> Option<&Rule<T>>;
+    fn get_rule(&self, i: usize) -> Option<&Rule<L>>;
     /// Get rule by Name
-    fn get_rule_by_name(&self, name: &str) -> Option<&Rule<T>>;
+    fn get_rule_by_name(&self, name: &str) -> Option<&Rule<L>>;
     /// Add a rule to the set
-    fn add_rule(&mut self, rule: Rule<T>);
+    fn add_rule(&mut self, rule: Rule<L>);
     /// Remove a rule from the set
-    fn remove_rule(&mut self, rule: &Rule<T>);
+    fn remove_rule(&mut self, rule: &Rule<L>);
 }
 
-impl<T> RuleSet<T> for Vec<Rule<T>>
+impl<L> RuleSet<L> for Vec<Rule<L>>
 where
-    T: AST,
+    L: OpLang,
 {
-    fn rules(&self) -> &Vec<Rule<T>> {
+    fn rules(&self) -> &Vec<Rule<L>> {
         self
     }
 
-    fn get_rule(&self, index: usize) -> Option<&Rule<T>> {
+    fn get_rule(&self, index: usize) -> Option<&Rule<L>> {
         self.get(index)
     }
 
-    fn get_rule_by_name(&self, name: &str) -> Option<&Rule<T>> {
+    fn get_rule_by_name(&self, name: &str) -> Option<&Rule<L>> {
         self.iter().find(|r| r.name == name)
     }
 
-    fn add_rule(&mut self, rule: Rule<T>) {
+    fn add_rule(&mut self, rule: Rule<L>) {
         self.push(rule);
     }
 
-    fn remove_rule(&mut self, rule: &Rule<T>) {
+    fn remove_rule(&mut self, rule: &Rule<L>) {
         if let Some(pos) = self.iter().position(|r| r.name == rule.name) {
             self.remove(pos);
         }
