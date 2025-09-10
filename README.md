@@ -2,7 +2,7 @@
 
 For now, this readme just contains my dev notes on the repo. In the future I'll put these elsewhere and make a pretty readme that explains the crate.
 
-## On Generics
+## On Generic-ness
 
 In meeting on 8/27 we highlighted that I was using too many traits and generics. 
 
@@ -11,18 +11,23 @@ In meeting on 8/27 we highlighted that I was using too many traits and generics.
   - `Property` renamed to `PropertySet` for understanding
   - Eliminated `PropLang` -> unnecessary
   - Eliminated `Analysis` (for now) -> making use of Egraph analysis might be interesting in the future, but for now I'm going to omit it to simplify things.
-  - Unified `Id` and `MulteId` into a single `Id` enum and included `PropId` to make clear distinction between `Id`s that only correspond to a Property Set (i.e. outside the context of eclasses)
-    - Not entirely sure if I want to commit to this approach yet.
+  - Moved the original, basic egraph implementation to its own repo so now `types` doesn't need to support both implementations and can be designed solely with the multegraph in mind
+  - Made 3 distinct Id type structs:
+    - `Id` for "logical Ids" of enodes and the larger e-classes
+    - `PropSetId` for property set Ids (helps avoid mistakenly using a `PropSetId` as an `Id` or vice versa)
+    - `MulteId` which is a (`Id`, `PropSetId`) tuple
+    - ~~Unified `Id` and `MulteId` into a single `Id` enum and included `PropId` to make clear distinction between `Id`s that only correspond to a Property Set (i.e. outside the context of eclasses)~~
     - Updated unionfind to take `usize` only since `Id` is no longer just a type alias (otherwise things get wonky) and the egraph handles unwrapping `Id`s correctly to use in the unionfind
-    - Also eliminates the need to `Term` and `MulteTerm`
-  - Made `Subst` less generic, now it is always just `Var` to `Id`
+  - No more `Term` and `MulteTerm`, now `Term` refers to what `MulteTerm` was since this is only a multegraph
+  - Made `Subst` less generic, now it is always just `Var` to `MulteId`
   - Eliminated `OpInfo` entirely -> How do we get this info now?
     - arity comes from the `OpLang` trait (each operator should have a specific, fixed arity (at least for now))
     - We provide functions using the function above to specifically get the `PropertySet` for output or a given input
   - Added `PropInfo` to hold the set of functions we need to map from expr/term/pattern to propertyset
     - defines relationship between a property set and an oplang
+    - details on computing property sets below
   - `PropertyMap` Simplified to wrapper struct on `BiMap`
-  - More details below
+    - [ ] Eventually I would like PropertyMap to be a data structure that maps property sets to a congruent, but easier to represent partially ordered set 
 
 ### Places where I think the trait/generic is worthwhile:
   - `OpLang` -> The language of operators you want to use, I think this is a nonnegotiable generic when used in things like `Expr<L>` but I can see the argument that the trait is too much.
@@ -35,43 +40,178 @@ In meeting on 8/27 we highlighted that I was using too many traits and generics.
     - pattern functions are fallible, since we might depend on arguments that are variables to generate property requirements
       - **What do we do during matching when this happens?**
     - Do we also need something that tells us what argument indices feed into property set computation? could be useful during search/replace
-
-### Implications of adding propset to `Expr`
-  - Adding `propset` to `Expr` means it will now be part of the hashconsed information mapping terms to Ids. 
-  - The concern here is that two terms like `Op(x, y)` and `Op(x, y)` (which previously would have been a single expression mapping to a single Id in the hascons) might somehow have different property set Ids and suddenly get mapped to 2 Ids in the hashcons. 
-  - Since `PropertySets` are derived from an expression, any two identical expressions must have the same property set, thus it is impossible to have two such concerning expressions
-    - The function mapping expr -> propertyset must be deterministic
+  - `Parseable` trait -> If you implement this single function trait on your `OpLang`, I can build a parser (passable right now, but could be improved) that allows you to use the rules macro.
+    - [ ] Should this just be baked into the `OpLang` trait? Maybe, but if you don't want to write a parser there's also nothing stopping you from writing rules directly in rust and forgoing the macro
 
 ## Property Sets and Correctness Requirements
 
-On it's own, a `PropertySet` (from here on out referred to as PS for short) is just a structure that satisfies a partial order and provides a bottom element. Pretty straightforward. Now, when we relate a PS to an `OpLang` (aka language or operator in the language) we need a set of functions that provide the mapping from expression in the language to PS and those functions need to satisfy some specific properties. I don't believe I've clearly outlined these anywhere yet.
+On it's own, a `PropertySet` (from here on out referred to as PS for short) is just a structure that satisfies a partial order and provides a bottom element. Pretty straightforward.
+Now, when we relate a PS to an `OpLang` (aka language or operator in the language) we need a set of functions that provide the mapping from expression in the language to PS and those functions need to satisfy some specific properties.
+I don't believe I've clearly outlined these anywhere yet.
 
-In the context of a language, a property either represents the concrete set of properties an expression *has* or the minimum set of properties an expression *needs to satisfy*. Some terminology:
-- Let $L$ be the set of all possible expressions in the language
-- Let $P(L)$ represent the set of all possible property sets of form $P$ in the language $L$.
-  - Let $\bot\in P(L)$ denote the bottom element of the set of property sets. That is, $\forall p\in P(L)$ we have $\bot\le p$.
-- An *expression* is a fully formed element $x\in L$. Typically, expressions are recursively defined using operators from the language and arguments that are either: a) expressions themselves, or b) terminal elements in the language.
-- A *pattern* is an element $v\in L\cup V$ where $V$ is the set of all possible expressions in $L$ where at least one term in the expression is an unknown variable. Patterns, like expressions, are recursively defined using operators in the language and, in addition to expressions and terminals, permit variables as arguments.
+>  ### TL;DR after chat w/ Max
+> 
+> The arguments of any operator can be partitioned into 2 sets:
+>   - **Property Factors** (idk I want a name for these groups) -> those that we use to derive PSs (and have no PS requirements themselves)
+>   - **Property Dependents** ->  those that do not inform PS values and might have PS requirements
+>
+> For example: the arguments of `MergeJoin(A, B, x)` can be divided into {`x`} (the arguments that inform PSs) and {`A`, `B`} (the set of arguments that do not, and in this case do in fact have PS requirements)
+>
+> Now, since we are working with recursive expressions and arguments are just more expressions themselves, it is entirely possible that a Property Factor will belong to an eclass with multiple nodes. To handle these cases, we propose that the functions mapping expressions/terms/patterns (or more specifically operators and their property factors) to PSs must respect the logical (coarsest grained) equivalence relation. 
+>
+> For example, suppose the expression above has already been inserted to the egraph and we now have a term with hashconsed Id's as arguments: `MergeJoin(10, 20, 30)`. Then, the PS of the expression and PS requirements on any of the property dependents are determined by the property factors which now point to an eclass rather than a single expression. It should hold that we can derive these PSs from any element of eclass 30.
+>
+> #### Is this approach sound?
+> For now, I think yes. The "logical" equivalence classes represent sets of expressions that correspond to the same information (even if that information might differ in properties like sortedness or source); it feels natural (and inline with e-graphs) that a function would respect that equivalence and produce the same output for all elements of an equivalent set (all else fixed.)
+>
+> #### What does this get us?
+> - **No need to "bubble up" changes to property sets during repair/rebuild.** Suppose we add an enode to a class that serves a property factor for one of its parents. Since the PS computation respects equivalence, this addition does not affect the PS of any parents.
+> - **Handling Patterns is almost trivial.** Suppose we have matched a pattern and are inserting the replacement, but one or more of the property factor arguments are just variables pointing to entire eclasses. Now we can just pick any element in that class to compute the PS of the inserted term.
+>
+> #### Open Questions:
+> - [ ] Do we actually need to partition arguments like this, or can we infer that info?
+>   - Not sure. This ties in to a larger question about how we will require programmers to define languages and PS computation functions.
+> - [ ] Can property factor arguments have properties?
+>   - I think yes...? They can't be used for anything in the PS computation, but they can exist.
+> - [ ] Can property factor arguments have PS requirements?
+>   - I think no. This can create a weird chain of dependencies when computing PSs.
+> - [ ] Does this requirement on property factors limit us in any detrimental way? Is there any reasonable case where the property set computation might not want to respect the logical equivalence relation?
+
+### MulteGraph Formalism
+
+In the context of a language, a property either represents the concrete set of properties an expression *has* or the minimum set of properties an expression *needs to satisfy*.
+
+#### Expressions and Properties
+- Let $O$ be a set of function symbols and constants, or *operators* that define some language.
+- Let an expression $x$ be given by $f\in O$ or recursively defined $f(x_1, x_2, \ldots, x_n)$ and let $L$ be the infinite set of all such expressions $x$.
+- Let $P_L$ represent the set of all possible property sets derived from expressions $x\in L$.
+  - Let $\bot\in P_L$ denote the bottom element of the set of property sets. That is, $\forall p\in P_L$ we have $\bot\le p$.
+- Let $V$ be a set of variables and let a pattern $r$ be given by $f\in O\cup V$ or recursively defined $f(r_1, r_2, \ldots, r_m)$.
+  - Let $L_V$ be the infinite set of all such patterns.
 - For an expression $x = f(a_1, a_2, \ldots, a_n)\in L$, let $p_x\in P$ denote the property set of expression $x$ and let $p_{x_i}\in P$ denote the property set requirements of argument $a_i$ in expression $x$.
+  - Note: We are dealing with two uses of property set here. The *property set of expression x* refers to the properties that expression *has*. The *property set requirements of an argument in an expression* refer to the minimum properties that argument must have to be an argument at that index to the expression. In the case of PS requirements, it is possible that the properties an argument are greater than the properties required.
+- We define functions to map from expressions to property sets. 
   - $F: L\to P$ maps expressions to the property set they have. For an expression $x\in L$, $F(x) = p_x$.
-  - $G: (L\times \N)\to P$ maps expressions $x\in L$ to the property set requirements of their argument at index $i\in\N$. Then $G(x, i) = p_{x_i}$.
-- Given an expression $x = f(a_1, a_2, \ldots, a_n)\in L$, we say a suitable argument $a_i$ is any expression $y$ with $p_{x_i} \le p_y$, that is the properties $y$ has contain the properties required by $x$ or argument $i$. We say $y$ ***satisfies*** $p_{x_i}$.
-- For a pattern $v\in L\cup V$, we will also define mapping functions as above; however, it is possible that variables in the pattern may obfuscate the information needed to determine the specific property set. Since $\bot$ refers to the minimal element of a property set, we use $\^\bot$ to represent this "failure" case.
-  - $F': L\cup V\to P\cup\{\^\bot\}$ maps patterns to the property set they have.
-  - $G': ((L\cup V)\times \N)\to P\cup\{\^\bot\}$ maps patterns to the property set requirements of their argument at index $i\in\N$.
-  - If we do not include $\^\bot$ and simply map to $P$ then $F'$ and $G'$ are nondeterminstic (even if we try our hardest to handle failure cases cleverly.)
-  - More discussion on this and potential other approaches in the following section.
+  - $G: (L\times \N)\to P$ maps expressions to the property set requirements of their arguments. Thus $G(x, i) = p_{x_i}$.
+  - $\lambda: L\times\N \to \{0, 1\}$ Indicates if the argument at index $i$ is a property factor ($\lambda(x, i)=0$) or dependent ($\lambda(x, i)=1$) 
+  - [ ] TODO: alternate version of these are functions that take an operator and set of property factors, is that better?
+- Given an expression $x \in L$, a suitable argument $a_i$ is any expression $y\in L$ with $G(x, i) = p_{x_i} \le p_y = F(y)$, that is the properties $y$ has contain the properties required by $x$ or argument $i$. We say $y$ ***satisfies*** $p_{x_i}$.
 
-### Mapping from Expression/Term to PropertySet
+#### MulteGraph
+- The MulteGraph deals with 3 types of identifiers:
+  - Let $N_L$ be a set of logical ids
+  - Let $N_P$ be a set of property ids
+  - Let $M$ be a set of *MulteIds* given by $N_L\times N_P$
+- Terms and Enodes
+  - A *term* is a representation of an expression in the graph where arguments are replaced with *MulteIds* corresponding to the class where the argument resides. 
+    - Let $T$ be the infinite set of terms with operators in $O$ and arguments in $M$. 
+  - An *enode* is a structure holding a *term* and some metadata (typically used for performance gains)
+  - *A Note on the Distinction*: I like referring to terms (the representation of an expression in the egraph) and enodes (the struct that stores the term and perhaps some other information) separately, but generally they are treated as one idea.
+- EClasses
+  - A *logical eclass* (typically referred to as just an *eclass*) is a group of enodes. These eclasses are stored as physical structs.
+  - A *property-based eclass* (aka a *sub-eclass*) is a subset of an eclass such that all enode members satisfy some property set requirement. These are represented virtually over the physical eclass.
+- Both enodes and eclasses have logical ids. Enodes all have unique logical ids while and eclasses id is the id of its canonical enode.
+- Let $U$ be the unionfind storing the logical equivalence relation over ids in $N_L$
+- Let $H_L$ be a hashcons $H: T\to N_L$
+- Let $E_c$ and $E_n$ be maps from $N_L$ to eclass and enode structs respectively.
+- Let $H_P$ be a bimap for property set ids $H_P:P\leftrightarrow N_P$
 
-TL;DR the core questions I want to dig into are:
-- [ ] How do we compute a property set from an e-class?
-  - To be clear, the question is not "how do we compute the property *of* the e-class?". Instead "if we have a term whose property set is derived from one of its arguments and that argument is an e-class with multiple e-nodes, how do we use the e-class in the derivation?". 
-  - We see this issue when inserting expressions to the e-graph (either fully formed or replacement patterns with variables).
-- [ ] If we cannot use an entire e-class in a property set computation, how do we handle variables in patterns?
-  - This question assumes that in the "fully formed expression" case, we duplicate expressions with differing property set requirements during repair (I explain this better below).
+The multegraph also maintains some common egraph operations/definitions/invariants (bulleted but not explained for brevity):
+- Canonicalization 
+- Representation of term
+- Equivalence -> the typical notion of equivalence refers to equivalence of eclasses not subeclasses.
+- Congruence
+- Congruence and Hashcons invariants
 
-> **In this section it is *really* important to distinguish between the PS of an expression/term and a PS derived from an expression/term that is associated with another (likely parent) expression/term.**
+#### Adding Terms and Computing Properties in the MulteGraph
+
+Like a traditional egraph the multegraph does not store expressions, but terms within enodes. When we insert information into the multegraph, we do one of two operations:
+- Insert an expression
+- Insert a pattern match and a corresponding substitution map relating unknown variables to eclasses
+
+We insert expressions recursively
+
+**Base case**: An expression $x$ with no arguments
+- Since the expression has no arguments, it is already in its term form.
+- We use $H_L[x]$ to get the logical id of the term if it already exists in the hashcons. If it does, we simply return the Id.
+- If not, we create a new singleton eclass in $U$ with id $i\in N_L$
+- Use $F(x)$ to get the properties of the expression, $p_x$
+- Use $H_P[p_x]$ to get the property id $j\in N_P$ of $x$
+- Create a new enode in the new class with id $i$ and property id $j$ in its struct data (we can also add the property set directly if it is reasonably small to store, otherwise we use ids to save space)
+- Add the enode and eclass to the struct maps $E_n$ and $E_c$ respectively.
+- Return $i$
+
+**Recursion:** An expression $x$ with one or more arguments.
+- Call this function on each argument expression and collect their logical ids $\{l_1, l_2, \ldots, l_n\}$
+- For every argument index $i$, construct a multeid as follows:
+  - If $\lambda(x, i) == 0$, use $(l_i, 0)$
+  - If $\lambda(x, i) == 1$, use $(l_i, G(x, i))$
+- Construct the term representation of $x$ by replacing each argument with its corresponding multeid. For example, $f(a_1, a_2, \ldots, a_n)$ becomes $f((l_1, p_{x_1}|0), (l_2, p_{x_2}|0), \ldots, (l_n, p_{x_n}|0))$.
+- At this point, we lookup the term with $H_L$ and return its id or create a new enode as above.
+
+Inserting a pattern and substitution follows the same process with one notable exception: whenever an argument is a variable, we don't recurse. Instead, we lookup the variable in the substitution map to get the eclass id that would have been returned by a recursive call. 
+
+With the introduction of properties, we also need to handle the case where a variable argument is used as a property factor by the parent term. In this case, we rely on the fact that $F$ and $G$ respect the logical equivalence relation maintained by $U$ (see detailed discussion below). After looking up the eclass in the substitution map, select any element from that eclass to use as the property factor expression. If there are multiple such arguments, do this for all of them. With a representative for each property factor, we can compute $G$ for all property dependent arguments and construct multeids of each argument as above.
+
+
+#### Guarantees and Attributes
+
+- [ ] TODO: I want to formart this section better, for now its a braindump
+
+1. Logical eclasses are never empty.
+2. Subclasses may be empty.
+3. $F$ and $G$ are not recursive, nor do they depend on one another. (i.e. properties don't depend on properties)
+4. $F$ and $G$ respect the logical equivalence relation maintained by $U$, particularly when it comes to property factors. Said another way, if $F(x)$ depends on an argument of $a_i$ of $x$ and the term representation of $x$ has $a_i$ pointing to an eclass $E$, $F(x)$ should produce the same result for any element of $E$.
+
+# Development Plan (very tentative)
+
+General outline:
+1. **Finish the basic multe-graph implementation** -> This will more or less mimic a traditional e-graph, but simply allow the use of properties (to little benefit)
+   1. Decide on and finish PR implementation
+   2. Resolve recent changes in rules, parser, testlang, regular e-graph etc.
+   3. Implement extraction and define cost function requirements (should be pretty basic) for both
+   4. Get a simple test going in the testlang with rules, simple PS, and a hardcoded cost function.
+2. **Define interfaces for a programmable search** -> Replace traditional e-matching with a collection of functions and structs to run a very fine grained search strategy
+   1. Decide on what operations we can break e-matching into and how granular to go (also how much info to expose to caller)
+   2. Decide on a queue/task structure for search operations (ala cascades operations, but also combine with e-graph rebuild/repair workload)
+   3. Decide on guardrails (if any) to prevent absolute chaos from ensuing (e.g. enforcing read/write phase orders)
+   4. Define the search/executor (single/multi thread) that will pop things off the worklist and do them and add more
+3. **Implement Custom Search Interfaces** -> Build the damn thing.
+   1. TBD -> once we know design, can chunk up implementation work
+4. **Build Running Example of a Custom Search** -> Cascades, Bottom-Up, Random?
+   1. Using everything built so far, build a working example of a searcher that runs the cascades style top-down search, but uses properties instead of enforcers
+   2. Also, try to do a bottom up query optimizer search
+   3. Also, maybe we build one of the random optimizers just for funsies
+   4. Honestly, this might take way more time than I think so we might need to adjust timeline here
+5. **Testing** -> At this point I might want to do some basic perf testing to see if this is moving in a useful direction
+6. **Revisit system diagram and adjust if needed** -> After doing a good chunk of work, check back in about the high level design
+   1. How do we feel about the difference between "programming and optimizer" and "running that optimizer on input"
+   2. Do we need stronger or weaker requirements anywhere?
+   3. Is there anything lacking in the pull information from outside source interface? Right now its pretty open ended, should it be more defined?
+7. **Revisit Rules/Parsing/Language Definition** -> Right now language parsing and rules is pretty basic, think about making it more elegant and programmer friendly
+   1. decide on syntax for rules, language, and property definitions
+   2. perhaps provide a way to distinguish between a source and target language (and under the hood we unify to one set of operators with "extractable" flags)
+   3. macro to generate parsers for custom languages
+   4. Also seriously consider ISLE style rewrites
+8. **Build Actual SQL parsing** -> Move on from dummy test lang to a usable SQL parser and IR
+   1. (Optionally) also add a hydro lang representation
+9.  **Work on Code Gen** -> Build up the "what happens after extraction" part
+
+## Decisions I need to make
+
+- [x] Keep regular e-graph here or move to its own repo?
+  - its on its own now
+- [x] PS requirements
+  - See above
+
+
+
+---
+
+# Archive Notes
+
+Things I think are likely out of date but I haven't sorted through them yet to see if theres info worth keeping. For now, my old reasoning lives on just in case.
+
 
 #### Expressions
 
@@ -151,44 +291,3 @@ Some options, in no particular order:
 ### Bad Ideas, do we need to explicitly prevent them?
 - [ ] Recursive map functions, ideally properties won't depend on other properties. The most recursion we can reasonably allow is determining the concrete value of an argument and passing it back up, not computing properties at every level.
 
-
-# Development Plan (very tentative)
-
-General outline:
-1. **Finish the basic multe-graph implementation** -> This will more or less mimic a traditional e-graph, but simply allow the use of properties (to little benefit)
-   1. Decide on and finish PR implementation
-   2. Resolve recent changes in rules, parser, testlang, regular e-graph etc.
-   3. Implement extraction and define cost function requirements (should be pretty basic) for both
-   4. Get a simple test going in the testlang with rules, simple PS, and a hardcoded cost function.
-2. **Define interfaces for a programmable search** -> Replace traditional e-matching with a collection of functions and structs to run a very fine grained search strategy
-   1. Decide on what operations we can break e-matching into and how granular to go (also how much info to expose to caller)
-   2. Decide on a queue/task structure for search operations (ala cascades operations, but also combine with e-graph rebuild/repair workload)
-   3. Decide on guardrails (if any) to prevent absolute chaos from ensuing (e.g. enforcing read/write phase orders)
-   4. Define the search/executor (single/multi thread) that will pop things off the worklist and do them and add more
-3. **Implement Custom Search Interfaces** -> Build the damn thing.
-   1. TBD -> once we know design, can chunk up implementation work
-4. **Build Running Example of a Custom Search** -> Cascades, Bottom-Up, Random?
-   1. Using everything built so far, build a working example of a searcher that runs the cascades style top-down search, but uses properties instead of enforcers
-   2. Also, try to do a bottom up query optimizer search
-   3. Also, maybe we build one of the random optimizers just for funsies
-   4. Honestly, this might take way more time than I think so we might need to adjust timeline here
-5. **Testing** -> At this point I might want to do some basic perf testing to see if this is moving in a useful direction
-6. **Revisit system diagram and adjust if needed** -> After doing a good chunk of work, check back in about the high level design
-   1. How do we feel about the difference between "programming and optimizer" and "running that optimizer on input"
-   2. Do we need stronger or weaker requirements anywhere?
-   3. Is there anything lacking in the pull information from outside source interface? Right now its pretty open ended, should it be more defined?
-7. **Revisit Rules/Parsing/Language Definition** -> Right now language parsing and rules is pretty basic, think about making it more elegant and programmer friendly
-   1. decide on syntax for rules, language, and property definitions
-   2. perhaps provide a way to distinguish between a source and target language (and under the hood we unify to one set of operators with "extractable" flags)
-   3. macro to generate parsers for custom languages
-   4. Also seriously consider ISLE style rewrites
-8. **Build Actual SQL parsing** -> Move on from dummy test lang to a usable SQL parser and IR
-   1. (Optionally) also add a hydro lang representation
-9.  **Work on Code Gen** -> Build up the "what happens after extraction" part
-
-## Decisions I need to make
-
-- [ ] Keep regular e-graph here or move to its own repo?
-  - I like having a very similar e-graph implementation to compare to; however, supporting both could be at the detriment of multe-graph
-- [ ] PS requirements
-  - See above
