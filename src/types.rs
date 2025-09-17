@@ -110,7 +110,7 @@ pub trait OpLang: Clone + Debug + PartialEq + Eq + Display + Hash {
     fn op(&self) -> &Self::Operator;
 
     /// Returns arity of the operator.
-    // TODO: What if people want variable length input?
+    // QUESTION: What if people want variable length input?
     fn arity(&self) -> usize;
 
     /// Returns true if this operator is "extractable", i.e. if it can be extracted from its context.
@@ -121,7 +121,7 @@ pub trait OpLang: Clone + Debug + PartialEq + Eq + Display + Hash {
 /// Note: This is largely for testing utility.
 // TODO: Move to a test util library instead of here
 #[macro_export]
-macro_rules! impl_ast_default {
+macro_rules! impl_oplang_default {
     () => {
         type Operator = Self;
 
@@ -164,9 +164,12 @@ pub struct Expr<L>
 where
     L: OpLang,
 {
+    /// Operator of the expression from an `OpLang`
     op: L,
+    /// Arguments as a vector of sub-expressions
     args: Vec<Expr<L>>,
-    propset: Option<PropSetId>, // PropertySetId of the expression
+    /// PropertySetId of the expression
+    propset: Option<PropSetId>,
 }
 
 impl<L> Expr<L>
@@ -175,7 +178,11 @@ where
 {
     /// Creates a new expression with the given operator and arguments.
     pub fn new(op: L, args: Vec<Expr<L>>) -> Self {
-        Self { op, propset: None, args }
+        Self {
+            op,
+            propset: None,
+            args,
+        }
     }
 
     /// Sets the PropertySetId of the expression.
@@ -213,13 +220,13 @@ where
     L: OpLang,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Expr(op: {}, propset: {:?}, args: {:?})", self.op, self.propset, self.args)
+        write!(
+            f,
+            "Expr(op: {}, propset: {:?}, args: {:?})",
+            self.op, self.propset, self.args
+        )
     }
 }
-
-// TODO: I think we also need a function that given an operator, tells me which arguments it uses to derive a property set
-// - creates a relationship between OpLang and PropertySet that is not yet solidified anywhere beyond the function above
-// - also (potentially) need a way to distinguish between dependency on nothing and dependency only on operator??
 
 /// Enum to represent either an expression or a variable.
 /// This is useful for representing patterns in rewrite rules.
@@ -353,33 +360,97 @@ where
     // FIXME: this needs a real solution
     pub fn satisfies_property<P>(&self, _props: &P) -> bool
     where
-        P: PropertySet
+        P: PropertySet,
     {
         true
     }
 }
 
-/// Struct to hold the functions to convert expressions and patterns to property sets.
+/// The PropInfo struct defines a relationship between an OpLang and a PropertySet.
+/// It contains functions that map expressions and patterns to property sets.
+/// This allows us to derive the properties of an expression based on its structure and the properties of its arguments.
+/// This is crucial for maintaining and enforcing property-based equivalence relations in the multe-graph.
+///
+/// It is important to note a few things. The functions...
+/// - must be deterministic. Given the same input, they must always produce the same output.
+/// - should respect the coarsest equivalence relation. If two expressions are logically equivalent, they should map to the same property set.
+/// - should be efficient to compute, as they will be called frequently during e-graph operations.
+/// - should be well-defined for all valid expressions and patterns in the language.
+/// - should NOT be recursive or depend on one another. Each function should be self-contained and operate solely on its input.
+// QUESTION: How do I enforce some/all of these ^?? Is there a Rust-y way to do it? Is just hopes and dreams?
 pub struct PropInfo<L, P>
 where
     L: OpLang,
     P: PropertySet,
 {
-    /// Function type to convert an expression to the property set of its output.
-    /// Since an expression is well-formed, it must map concretely to a single property set.
-    // TODO: How do I enforce determinism?? Is there a Rust-y way to do it? Is just hopes and dreams?
-    pub expr_output_props: fn(&Expr<L>) -> P,
-    /// Function type to convert an expression to the property set of requirements on argument idx.
-    pub expr_arg_props: fn(&Expr<L>, usize) -> P,
+    /// Function to map from an operator to indices of its property-deriving arguments.
+    pub op_prop_args: fn(&L) -> Vec<usize>,
+    /// Function to map from an operator to the indices of its property-dependent arguments.
+    pub op_dep_args: fn(&L) -> Vec<usize>,
+    // QUESTION: Do we need both of these?
+    // TODO: At some point, do a check that prop args and dep args are disjoint, within arity bounds, and cover all arguments
+    /// Function to get the property set of the expression.
+    pub output_props: fn(&Expr<L>) -> P,
+    /// Function to get the property srt requirements on argument at index idx.
+    pub arg_req_props: fn(&Expr<L>, usize) -> P,
+    // QUESTION: Should these functions taken an operator and a vec of property-deriving expressions instead?
+    //   - This would enforce that the functions only depend on the operator and the relevant arguments
+    //   - However, it would also require us to extract the relevant arguments before calling the function
+}
 
-    // Function type to convert a Pattern to a property set (if possible)
-    /// Why is this fallible? Generally, property sets are derived from an operator and some of its arguments.
-    /// If the pattern contains variables in those arguments, we may not be able to determine the property set.
-    /// Of course, depending on the language and property set, there might be a natural way to resolve these variables,
-    /// but we do not force programmers to devise a way to resolve variables to properties.
-    pub pattern_output_props: fn(&Pattern<L>) -> Option<P>,
-    /// Function type to convert a pattern to the property set of requirements on argument idx.
-    pub pattern_arg_props: fn(&Pattern<L>, usize) -> Option<P>,
+impl<L, P> PropInfo<L, P>
+where
+    L: OpLang,
+    P: PropertySet,
+{
+    /// Creates a new PropInfo instance with the given functions.
+    pub fn new(
+        op_prop_args: fn(&L) -> Vec<usize>,
+        op_dep_args: fn(&L) -> Vec<usize>,
+        output_props: fn(&Expr<L>) -> P,
+        arg_req_props: fn(&Expr<L>, usize) -> P,
+    ) -> Self {
+        Self {
+            op_prop_args,
+            op_dep_args,
+            output_props,
+            arg_req_props,
+        }
+    }
+
+    pub fn default() -> Self {
+        Self {
+            op_prop_args: |_| vec![],
+            op_dep_args: |_| vec![],
+            output_props: |_| P::bottom(),
+            arg_req_props: |_, _| P::bottom(),
+        }
+    }
+
+    pub fn op_prop_args(&self, op: &L) -> Vec<usize> {
+        (self.op_prop_args)(op)
+    }
+
+    pub fn op_dep_args(&self, op: &L) -> Vec<usize> {
+        (self.op_dep_args)(op)
+    }
+
+    pub fn output_props(&self, expr: &Expr<L>) -> P {
+        (self.output_props)(expr)
+    }
+
+    pub fn arg_req_props(&self, expr: &Expr<L>, idx: usize) -> P {
+        (self.arg_req_props)(expr, idx)
+    }
+}
+
+/// Cost functions are used to guide extraction from the e-graph.
+pub trait CostFunction<L>
+where
+    L: OpLang,
+{
+    // TODO: Define the cost function trait
+    // QUESTION: Should the cost function depend on properties as well?
 }
 
 // =============== Here be monsters ================

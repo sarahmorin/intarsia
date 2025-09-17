@@ -21,7 +21,6 @@ impl<L> Parser<L>
 where
     L: OpLang + Parseable,
 {
-
     /// Parse a string into an OpLang Expr node.
     pub fn parse_expr(s: &str) -> Result<Expr<L>, String> {
         let trimmed = s.trim();

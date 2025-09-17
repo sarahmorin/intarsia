@@ -29,14 +29,14 @@ where
 macro_rules! rule {
     ($name:expr, $pattern:expr, $replacement:expr) => {
         Rule::new(
-            $name.to_string(), 
-            Parser::parse_pattern($pattern).expect("Failed to parse pattern"), 
-            Parser::parse_pattern($replacement).expect("Failed to parse replacement")
+            $name.to_string(),
+            Parser::parse_pattern($pattern).expect("Failed to parse pattern"),
+            Parser::parse_pattern($replacement).expect("Failed to parse replacement"),
         )
     };
 }
 
-// TODO: We can pick more interesting structs here, could be a place to allow for user-defined organization
+// NOTE: We can pick more interesting structs here, could be a place to allow for user-defined organization
 pub trait RuleSet<L>
 where
     L: OpLang,
@@ -92,7 +92,11 @@ mod tests {
         let replacement =
             Parser::<Ops>::parse_pattern("Or(?a, ?b)").expect("Failed to parse replacement");
 
-        let rule = Rule::new("test_rule".to_string(), pattern.clone(), replacement.clone());
+        let rule = Rule::new(
+            "test_rule".to_string(),
+            pattern.clone(),
+            replacement.clone(),
+        );
 
         assert_eq!(rule.name, "test_rule");
         assert_eq!(rule.pattern, pattern);
@@ -390,11 +394,7 @@ mod tests {
 
     #[test]
     fn test_rule_with_multiple_variables() {
-        let rule = rule!(
-            "commutative_and",
-            "And(?x, ?y)",
-            "And(?y, ?x)"
-        );
+        let rule = rule!("commutative_and", "And(?x, ?y)", "And(?y, ?x)");
 
         assert_eq!(rule.name, "commutative_and");
 
@@ -435,11 +435,7 @@ mod tests {
 
     #[test]
     fn test_rule_with_nested_variables() {
-        let rule = rule!(
-            "distribute_not",
-            "Not(And(?a, ?b))",
-            "Or(Not(?a), Not(?b))"
-        );
+        let rule = rule!("distribute_not", "Not(And(?a, ?b))", "Or(Not(?a), Not(?b))");
 
         assert_eq!(rule.name, "distribute_not");
 
@@ -531,11 +527,7 @@ mod tests {
 
     #[test]
     fn test_rule_with_same_variable_multiple_times() {
-        let rule = rule!(
-            "identity_rule",
-            "And(?x, ?x)",
-            "?x"
-        );
+        let rule = rule!("identity_rule", "And(?x, ?x)", "?x");
 
         assert_eq!(rule.name, "identity_rule");
 
@@ -592,11 +584,7 @@ mod tests {
 
     #[test]
     fn test_rule_with_integer_constants() {
-        let rule = rule!(
-            "constant_folding",
-            "Add(42, 0)",
-            "42"
-        );
+        let rule = rule!("constant_folding", "Add(42, 0)", "42");
 
         assert_eq!(rule.name, "constant_folding");
 

@@ -79,13 +79,17 @@ mod tests {
 
     impl PropertySet for TestPropertySet {
         fn bottom() -> Self {
-            TestPropertySet { value: PropSetId(0) }
+            TestPropertySet {
+                value: PropSetId(0),
+            }
         }
     }
 
     impl TestPropertySet {
         fn new(value: usize) -> Self {
-            TestPropertySet { value: PropSetId(value) }
+            TestPropertySet {
+                value: PropSetId(value),
+            }
         }
     }
 
@@ -94,8 +98,14 @@ mod tests {
         let prop_map: PropertySetMap<TestPropertySet> = PropertySetMap::new();
 
         // Should have bottom property with ID 0
-        assert_eq!(prop_map.get_by_id(&PropSetId(0)), Some(&TestPropertySet::bottom()));
-        assert_eq!(prop_map.get_by_propset(&TestPropertySet::bottom()), Some(&PropSetId(0)));
+        assert_eq!(
+            prop_map.get_by_id(&PropSetId(0)),
+            Some(&TestPropertySet::bottom())
+        );
+        assert_eq!(
+            prop_map.get_by_propset(&TestPropertySet::bottom()),
+            Some(&PropSetId(0))
+        );
     }
 
     #[test]
@@ -181,8 +191,14 @@ mod tests {
         prop_map.insert(&prop2);
 
         // Bottom should still be accessible with ID 0
-        assert_eq!(prop_map.get_by_id(&PropSetId(0)), Some(&TestPropertySet::bottom()));
-        assert_eq!(prop_map.get_by_propset(&TestPropertySet::bottom()), Some(&PropSetId(0)));
+        assert_eq!(
+            prop_map.get_by_id(&PropSetId(0)),
+            Some(&TestPropertySet::bottom())
+        );
+        assert_eq!(
+            prop_map.get_by_propset(&TestPropertySet::bottom()),
+            Some(&PropSetId(0))
+        );
     }
 
     #[test]
@@ -213,7 +229,10 @@ mod tests {
 
         // Should return existing ID 0
         assert_eq!(bottom_id, PropSetId(0));
-        assert_eq!(prop_map.get_by_id(&PropSetId(0)), Some(&TestPropertySet::bottom()));
+        assert_eq!(
+            prop_map.get_by_id(&PropSetId(0)),
+            Some(&TestPropertySet::bottom())
+        );
     }
 
     #[test]

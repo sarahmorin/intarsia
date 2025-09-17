@@ -18,13 +18,13 @@ where
     pub term: Term<L>,
     // TODO: Potential property sat optimizations:
     //  - A bitmap indicating which properties are satisfied by this ENode
-    //  - A version of OpInfo where the properties are represented as Ids
 }
 
 impl<L> ENode<L>
 where
     L: OpLang,
 {
+    /// Create a new ENode with the given id and term.
     pub fn new(id: Id, term: Term<L>) -> Self {
         ENode { id, term }
     }
@@ -40,33 +40,28 @@ where
     }
 }
 
-/// EClass.
+/// EClass
+///
 /// In the MulteGraph, an EClass is a collection of ENodes that are equivalent under the operator equivalence relation.
-/// The "EClasses" of the property equivalence relation are virtual subsets of one of these EClasses.
-/// TODO: docstring.
+/// The "EClasses" of the property equivalence relation are virtual subsets of these EClasses.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EClass
-{
+pub struct EClass {
     /// Unique identifier for the EClass.
     pub id: Id,
     /// ENodes contained in this EClass.
     enodes: Vec<Id>,
     /// ENodes that are roots of this EClass.
-    // QUESTION: Should this be a vector of (parent enode id, property req id)?
     parents: Vec<Id>,
-    // Analysis data associated with this EClass
-    // analysis: A,
-    // TODO: Maybe we add a vec of analysis values for each virtual e-class?
+    // TODO: Potential property sat optimizations:
+    // - a list/bitmap of property sets required by parents
 }
 
-impl EClass
-{
+impl EClass {
     pub fn new(id: Id) -> Self {
         EClass {
             id,
             enodes: Vec::new(),
             parents: Vec::new(),
-            // analysis,
         }
     }
 
@@ -86,16 +81,10 @@ impl EClass
         &self.parents
     }
 
-    // TODO: If we change analysis in struct, update this
-    // pub fn get_analysis(&self) -> &A {
-    //     &self.analysis
-    // }
-
     /// Merges another EClass into this one.
     pub fn merge_in_place(&mut self, other: &EClass) {
         self.enodes.extend(other.enodes.clone());
         self.parents.extend(other.parents.clone());
-        // self.analysis.merge(other.analysis.clone());
     }
 
     /// Merge two EClasses into a new one.
@@ -110,14 +99,18 @@ impl EClass
     }
 }
 
-/// MultEGraph.
-/// TODO: documentation.
+/// MultEGraph
+///
+/// A multegraph is an e-graph that supports multiple equivalence relations via property sets.
+/// The coarsest equivalence relation is the logical equivalence relation, which groups expressions that are logically equivalent into EClasses.
+/// Each EClass can contain multiple ENodes, each representing a different expression that is logically equivalent.
+/// Property-based equivalence relations are virtual subsets of these EClasses, defined by the properties satisfied by the ENodes.
 pub struct EGraph<L, P>
 where
     L: OpLang,
     P: PropertySet,
 {
-    /// Set of functions used to map expressions to property sets.
+    /// Set of functions used to derive property sets from expressions and patterns.
     pinfo: PropInfo<L, P>,
     /// UnionFind managing equivalence classes.
     uf: UnionFind,
@@ -203,11 +196,16 @@ where
     /// Get nodes in an EClass.
     /// For logical EClasses, pass the logical Id. For property-based searches, use get_enodes_by_propset instead.
     pub fn get_enodes_in_eclass(&self, id: &Id) -> Vec<&ENode<L>> {
-        self.get_eclass(id).unwrap().get_enodes().iter().map(|enode_id| self.get_enode(enode_id).unwrap()).collect()
+        self.get_eclass(id)
+            .unwrap()
+            .get_enodes()
+            .iter()
+            .map(|enode_id| self.get_enode(enode_id).unwrap())
+            .collect()
     }
 
     // FIXME: This is so slow and gross
-    /// Get nodes in an EClass that satisfy a specific property set.
+    /// Get nodes in a virtual subset of an EClass defined by a property set.
     pub fn get_enodes_in_eclass_with_props(&self, multe_id: &MulteId) -> Vec<&ENode<L>> {
         let logical_id = &multe_id.logical_id();
         let prop_id = &multe_id.propset_id();
@@ -280,6 +278,7 @@ where
 
     /// Add an Expr to the EGraph as an ENode.
     /// Recursively converts the Expr to a Term, canonicalizes it, and adds it to the EGraph.
+    // FIXME: Update to handle properties
     pub fn add_expr(&mut self, expr: &Expr<L>) -> Id {
         // Recursively convert expression to a term
         let arg_ids: Vec<MulteId> = expr
@@ -288,12 +287,12 @@ where
             .enumerate()
             .map(|(i, arg)| {
                 let arg_id = self.add_expr(arg);
-                let props = (self.pinfo.expr_arg_props)(expr, i);
+                let props = (self.pinfo.arg_req_props)(expr, i);
                 let prop_id = self.pc.insert(&props);
                 MulteId(arg_id, prop_id)
             })
             .collect();
-        
+
         // Get properties of the operator
         let term = Term::new(expr.op().clone(), arg_ids);
 
@@ -321,74 +320,121 @@ where
         }
     }
 
-    /// Insert an ENode from an Expr and Substitution into the EGraph.
-    pub fn add_enode_match(&mut self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Id {
+    /// Recursively reconstruct the canonical expression for an EClass given its Id.
+    pub fn get_canonical_expr(&self, id: &Id) -> Expr<L> {
+        if let Some(enode) = self.get_enode(&self.find(*id)) {
+            return Expr::new(
+                enode.term.op().clone(),
+                enode
+                    .term
+                    .args()
+                    .iter()
+                    .map(|arg| self.get_canonical_expr(&arg.logical_id()))
+                    .collect(),
+            );
+        }
+        panic!("EClass or ENode not found for Id {}", id);
+    }
+
+    /// Convert a Pattern with a Substitution into its canonical Expr in the EGraph.
+    pub fn to_canonical_expr(&self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Expr<L> {
         match pattern.op() {
             OpOrVar::Var(s) => {
                 // If the expression is a variable, we need to substitute it with the corresponding Id
                 if let Some(&id) = subst.get(s) {
-                    return id;
+                    return self.get_canonical_expr(&id);
                 } else {
                     panic!("Variable {} not found in substitution map", s);
                 }
             }
             OpOrVar::Op(op) => {
-                let arg_ids: Vec<MulteId> = pattern
+                let args: Vec<Expr<L>> = pattern
                     .args()
                     .iter()
-                    .enumerate()
-                    .map(|(i, arg)| {
-                        let arg_id = self.add_enode_match(arg, subst);
-                        if let Some(props) = (self.pinfo.pattern_arg_props)(pattern, i) {
-                            let prop_id = self.pc.insert(&props);
-                            MulteId(arg_id, prop_id)
-                        } else {
-                            // FIXME: what if there's no way to generate the properties? right now default to bottom....?
-                            MulteId(arg_id, PropSetId(0))
-                        }
-                    })
+                    .map(|arg| self.to_canonical_expr(arg, subst))
                     .collect();
-                
-                // Get properties of the operator
-                let term = Term::new(op.clone(), arg_ids);
-
-                // Canonicalize the term
-                let canonical_term = self.canonicalize(&term);
-
-                // If the term already exists, return its id
-                // Otherwise, create a new e-node and singleton e-class
-                if let Some(&id) = self.hc.get(&canonical_term) {
-                    id
-                } else {
-                    let new_id = self.add_set();
-                    self.hc.insert(canonical_term.clone(), new_id);
-                    let enode = ENode::new(new_id, canonical_term.clone());
-                    self.enodes.insert(new_id, enode);
-                    let mut new_eclass = EClass::new(new_id);
-                    new_eclass.add_enode(new_id);
-                    self.eclasses.insert(new_id, new_eclass);
-                    for child in canonical_term.args() {
-                        self.get_eclass_mut(&child.logical_id())
-                            .unwrap()
-                            .add_parent(new_id);
-                    }
-                    new_id
-                }
+                Expr::new(op.clone(), args)
             }
         }
+    }
+
+    /// Insert an ENode from an Expr and Substitution into the EGraph.
+    // FIXME: Update to handle properties
+    pub fn add_enode_match(&mut self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Id {
+        // HACK: This is gross and an fixing it is an open problem
+        // Since I haven't decided exactly how to handle mapping from patters/terms to properties,
+        // I'm going to convert the entire pattern to its canoncial expressison and then add that expression
+        let expr = self.to_canonical_expr(pattern, subst);
+        return self.add_expr(&expr);
+        // match pattern.op() {
+        //     OpOrVar::Var(s) => {
+        //         // If the expression is a variable, we need to substitute it with the corresponding Id
+        //         if let Some(&id) = subst.get(s) {
+        //             return id;
+        //         } else {
+        //             panic!("Variable {} not found in substitution map", s);
+        //         }
+        //     }
+        //     OpOrVar::Op(op) => {
+        //         let arg_ids: Vec<MulteId> = pattern
+        //             .args()
+        //             .iter()
+        //             .enumerate()
+        //             .map(|(i, arg)| {
+        //                 let arg_id = self.add_enode_match(arg, subst);
+        //                 if let Some(props) = (self.pinfo.arg_req_props)(pattern, i) {
+        //                     let prop_id = self.pc.insert(&props);
+        //                     MulteId(arg_id, prop_id)
+        //                 } else {
+        //                     // FIXME: what if there's no way to generate the properties? right now default to bottom....?
+        //                     MulteId(arg_id, PropSetId(0))
+        //                 }
+        //             })
+        //             .collect();
+
+        //         // Get properties of the operator
+        //         let term = Term::new(op.clone(), arg_ids);
+
+        //         // Canonicalize the term
+        //         let canonical_term = self.canonicalize(&term);
+
+        //         // If the term already exists, return its id
+        //         // Otherwise, create a new e-node and singleton e-class
+        //         if let Some(&id) = self.hc.get(&canonical_term) {
+        //             id
+        //         } else {
+        //             let new_id = self.add_set();
+        //             self.hc.insert(canonical_term.clone(), new_id);
+        //             let enode = ENode::new(new_id, canonical_term.clone());
+        //             self.enodes.insert(new_id, enode);
+        //             let mut new_eclass = EClass::new(new_id);
+        //             new_eclass.add_enode(new_id);
+        //             self.eclasses.insert(new_id, new_eclass);
+        //             for child in canonical_term.args() {
+        //                 self.get_eclass_mut(&child.logical_id())
+        //                     .unwrap()
+        //                     .add_parent(new_id);
+        //             }
+        //             new_id
+        //         }
+        //     }
+        // }
     }
 
     /// Match an expression against an EClass.
     /// Returns a vector of substitutions that match the expression against the EClass.
     /// NOTE: This is traditional, boring ematching just for the sake of making sure I didn't break that with the Ids.
-    // FIXME: Matching on properties is not implemented yet
     pub fn ematch(
         &self,
         pattern: &Pattern<L>,
         eclass: MulteId,
         subst: &Subst<Var, MulteId>,
     ) -> Vec<Subst<Var, MulteId>> {
-        fn insert_subst(var: &Var, eclass: MulteId, subst: &Subst<Var, MulteId>) -> Option<Subst<Var, MulteId>> {
+        fn insert_subst(
+            var: &Var,
+            eclass: MulteId,
+            subst: &Subst<Var, MulteId>,
+        ) -> Option<Subst<Var, MulteId>> {
             let mut subst_clone = subst.clone();
             if let Some(id) = subst_clone.insert(var.clone(), eclass) {
                 // If the variable was already in the substitution map, check if it matches the eclass
@@ -415,7 +461,7 @@ where
                     for node in self.get_enodes_in_eclass_with_props(&eclass) {
                         if node.term.matches_pattern(pattern) {
                             let mut subst_clone = subst.clone();
-                            subst_clone.insert(String::from(""), MulteId(Id(0), PropSetId(0))); // FIXME: this is hacky
+                            subst_clone.insert(String::from(""), MulteId(Id(0), PropSetId(0))); // HACK
                             res.push(subst_clone);
                             return res;
                         }
@@ -529,7 +575,6 @@ where
                 // the merge here will add the parent to the worklist
                 let merged_id = self.merge(p_eclass_id, p_id);
                 new_parents.insert(p_node_canonical, merged_id);
-                // TODO: I believe the merge calls will handle the analysis repair as well but I should double check
             } else {
                 // Otherwise, we insert the canonicalized term into the new parents map
                 new_parents.insert(p_node_canonical, p_eclass_id);
@@ -539,18 +584,16 @@ where
 
     /// Extract an expression from the EGraph.
     /// Given an Id, find an expression that corresponds to the EClass of that Id.
-    pub fn extract(&self, _id: Id) -> Expr<L>
-    {
+    pub fn extract(&self, _id: Id, _cost_func: &dyn CostFunction<L>) -> Expr<L> {
         todo!("Implement extraction of expression from EGraph");
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use lattices::*;
     use std::hash::Hasher;
 
-    use crate::impl_ast_default;
+    use crate::impl_oplang_default;
 
     use super::*;
 
@@ -575,7 +618,7 @@ mod tests {
     }
 
     impl OpLang for TestOp {
-        impl_ast_default!();
+        impl_oplang_default!();
 
         fn arity(&self) -> usize {
             match self {
@@ -620,12 +663,7 @@ mod tests {
 
     // Helper functions for creating PropInfo
     fn test_prop_info() -> PropInfo<TestOp, TestProp> {
-        PropInfo {
-            expr_output_props: |_expr| TestProp::bottom(),
-            expr_arg_props: |_expr, _idx| TestProp::bottom(),
-            pattern_output_props: |_pattern| Some(TestProp::bottom()),
-            pattern_arg_props: |_pattern, _idx| Some(TestProp::bottom()),
-        }
+        PropInfo::default()
     }
 
     fn make_const_expr(n: i32) -> Expr<TestOp> {
@@ -765,11 +803,17 @@ mod tests {
         let id1 = egraph.add_expr(&const1);
         let id2 = egraph.add_expr(&const2);
 
-        let term = Term::new(TestOp::Add, vec![MulteId(id1, PropSetId(0)), MulteId(id2, PropSetId(0))]);
+        let term = Term::new(
+            TestOp::Add,
+            vec![MulteId(id1, PropSetId(0)), MulteId(id2, PropSetId(0))],
+        );
         let canonical = egraph.canonicalize(&term);
 
         assert_eq!(canonical.op(), &TestOp::Add);
-        assert_eq!(canonical.args(), &vec![MulteId(id1, PropSetId(0)), MulteId(id2, PropSetId(0))]);
+        assert_eq!(
+            canonical.args(),
+            &vec![MulteId(id1, PropSetId(0)), MulteId(id2, PropSetId(0))]
+        );
     }
 
     #[test]
@@ -841,7 +885,11 @@ mod tests {
         assert_eq!(matches1.len(), 1);
 
         // Matching different constant should fail
-        let matches2 = egraph.ematch(&other_const_pattern, MulteId(const_id, PropSetId(0)), &subst);
+        let matches2 = egraph.ematch(
+            &other_const_pattern,
+            MulteId(const_id, PropSetId(0)),
+            &subst,
+        );
         assert_eq!(matches2.len(), 0);
     }
 
@@ -1132,6 +1180,9 @@ mod tests {
         assert_eq!(matches.len(), 1);
         let expected_mul_id =
             egraph.add_expr(&make_mul_expr(make_var_expr("x"), make_const_expr(2)));
-        assert_eq!(matches[0].get("y"), Some(&MulteId(expected_mul_id, PropSetId(0))));
+        assert_eq!(
+            matches[0].get("y"),
+            Some(&MulteId(expected_mul_id, PropSetId(0)))
+        );
     }
 }

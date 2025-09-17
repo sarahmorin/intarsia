@@ -133,23 +133,27 @@ impl OpLang for Ops {
     fn arity(&self) -> usize {
         match self {
             // Constants have arity 0
-            Ops::Col(_) | Ops::Table(_) | Ops::ConstStr(_) | Ops::ConstInt(_) | Ops::ConstBool(_) => 0,
+            Ops::Col(_)
+            | Ops::Table(_)
+            | Ops::ConstStr(_)
+            | Ops::ConstInt(_)
+            | Ops::ConstBool(_) => 0,
             // Comparison operators have arity 2
             Ops::Eq | Ops::Neq | Ops::Lt | Ops::Gt | Ops::Le | Ops::Ge => 2,
             // Boolean operators
             Ops::Not => 1,
             Ops::And | Ops::Or => 2,
             // Logical query ops
-            Ops::Get => 2,      // Get(Table, Column)
-            Ops::Filter => 2,   // Filter(Input, Condition)
-            Ops::Join => 3,     // Join(Left, Right, Condition)
-            Ops::Project => 2,  // Project(Input, Columns)
+            Ops::Get => 2,     // Get(Table, Column)
+            Ops::Filter => 2,  // Filter(Input, Condition)
+            Ops::Join => 3,    // Join(Left, Right, Condition)
+            Ops::Project => 2, // Project(Input, Columns)
             // Physical query ops
-            Ops::Scan => 1,         // Scan(Table)
-            Ops::IndexScan => 2,    // IndexScan(Table, Column)
-            Ops::Sort => 2,         // Sort(Input, Columns)
-            Ops::NLJoin => 3,       // NLJoin(Left, Right, Condition)
-            Ops::SortJoin => 3,     // SortJoin(Left, Right, Condition)
+            Ops::Scan => 1,      // Scan(Table)
+            Ops::IndexScan => 2, // IndexScan(Table, Column)
+            Ops::Sort => 2,      // Sort(Input, Columns)
+            Ops::NLJoin => 3,    // NLJoin(Left, Right, Condition)
+            Ops::SortJoin => 3,  // SortJoin(Left, Right, Condition)
         }
     }
 }
