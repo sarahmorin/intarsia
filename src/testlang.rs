@@ -1,11 +1,10 @@
-use crate::impl_ast_default;
+use crate::impl_oplang_default;
 use crate::parser::{Parseable, Parser};
 use crate::types::*;
 use bitmaps::Bitmap;
 /// A stand in language for testing purposes.
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use std::str::FromStr;
 
 /// Represents the test language.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -37,7 +36,7 @@ pub enum Ops {
     IndexScan,
     Sort,
     NLJoin,
-    HashJoin,
+    SortJoin,
 }
 
 impl Parseable for Ops {
@@ -63,7 +62,7 @@ impl Parseable for Ops {
             "IndexScan" => Ok(Ops::IndexScan),
             "Sort" => Ok(Ops::Sort),
             "NLJoin" => Ok(Ops::NLJoin),
-            "HashJoin" => Ok(Ops::HashJoin),
+            "SortJoin" => Ok(Ops::SortJoin),
             // Boolean constants
             "true" => Ok(Ops::ConstBool(true)),
             "false" => Ok(Ops::ConstBool(false)),
@@ -123,13 +122,13 @@ impl Display for Ops {
             Ops::IndexScan => write!(f, "IndexScan"),
             Ops::Sort => write!(f, "Sort"),
             Ops::NLJoin => write!(f, "NLJoin"),
-            Ops::HashJoin => write!(f, "HashJoin"),
+            Ops::SortJoin => write!(f, "SortJoin"),
         }
     }
 }
 
 impl OpLang for Ops {
-    impl_ast_default!();
+    impl_oplang_default!();
 
     fn arity(&self) -> usize {
         match self {
@@ -150,7 +149,7 @@ impl OpLang for Ops {
             Ops::IndexScan => 2,    // IndexScan(Table, Column)
             Ops::Sort => 2,         // Sort(Input, Columns)
             Ops::NLJoin => 3,       // NLJoin(Left, Right, Condition)
-            Ops::HashJoin => 3,     // HashJoin(Left, Right, Condition)
+            Ops::SortJoin => 3,     // SortJoin(Left, Right, Condition)
         }
     }
 }
