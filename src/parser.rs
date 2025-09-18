@@ -159,113 +159,115 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testlang::Ops;
+    use crate::testlang::QueryOps;
 
     #[test]
     fn test_parse_terminal() {
-        let result = Parser::<Ops>::parse_expr("true");
+        let result = Parser::<QueryOps>::parse_expr("true");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::ConstBool(true));
+        assert_eq!(*expr.op(), QueryOps::ConstBool(true));
         assert!(expr.args().is_empty());
     }
 
     #[test]
     fn test_parse_simple_expression() {
-        let result = Parser::<Ops>::parse_expr("Not(true)");
+        let result = Parser::<QueryOps>::parse_expr("Not(true)");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::Not);
+        assert_eq!(*expr.op(), QueryOps::Not);
         assert_eq!(expr.args().len(), 1);
-        assert_eq!(*expr.args()[0].op(), Ops::ConstBool(true));
+        assert_eq!(*expr.args()[0].op(), QueryOps::ConstBool(true));
     }
 
     #[test]
     fn test_parse_nested_expression() {
-        let result = Parser::<Ops>::parse_expr("And(Not(true), false)");
+        let result = Parser::<QueryOps>::parse_expr("And(Not(true), false)");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::And);
+        assert_eq!(*expr.op(), QueryOps::And);
         assert_eq!(expr.args().len(), 2);
 
         // First argument: Not(true)
         let first_arg = &expr.args()[0];
-        assert_eq!(*first_arg.op(), Ops::Not);
+        assert_eq!(*first_arg.op(), QueryOps::Not);
         assert_eq!(first_arg.args().len(), 1);
-        assert_eq!(*first_arg.args()[0].op(), Ops::ConstBool(true));
+        assert_eq!(*first_arg.args()[0].op(), QueryOps::ConstBool(true));
 
         // Second argument: false
         let second_arg = &expr.args()[1];
-        assert_eq!(*second_arg.op(), Ops::ConstBool(false));
+        assert_eq!(*second_arg.op(), QueryOps::ConstBool(false));
         assert!(second_arg.args().is_empty());
     }
 
     #[test]
     fn test_parse_empty_args() {
-        let result = Parser::<Ops>::parse_expr("And()");
+        let result = Parser::<QueryOps>::parse_expr("And()");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::And);
+        assert_eq!(*expr.op(), QueryOps::And);
         assert!(expr.args().is_empty());
     }
 
     #[test]
     fn test_parse_complex_nested() {
-        let result = Parser::<Ops>::parse_expr("Or(And(Not(true), false), Not(And(true, false)))");
+        let result =
+            Parser::<QueryOps>::parse_expr("Or(And(Not(true), false), Not(And(true, false)))");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::Or);
+        assert_eq!(*expr.op(), QueryOps::Or);
         assert_eq!(expr.args().len(), 2);
     }
 
     #[test]
     fn test_parse_error_mismatched_parens() {
-        let result = Parser::<Ops>::parse_expr("And(true, false");
+        let result = Parser::<QueryOps>::parse_expr("And(true, false");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_error_unknown_operator() {
         // With the new FromStr implementation, unknown operators are parsed as string constants
-        let result = Parser::<Ops>::parse_expr("UnknownOp(true)");
+        let result = Parser::<QueryOps>::parse_expr("UnknownOp(true)");
         assert!(result.is_ok());
         let expr = result.unwrap();
         // The operator should be parsed as a string constant
-        assert_eq!(*expr.op(), Ops::ConstStr("UnknownOp".to_string()));
+        assert_eq!(*expr.op(), QueryOps::ConstStr("UnknownOp".to_string()));
     }
 
     #[test]
     fn test_parse_whitespace_handling() {
-        let result = Parser::<Ops>::parse_expr("  And(  Not( true ) , false  )  ");
+        let result = Parser::<QueryOps>::parse_expr("  And(  Not( true ) , false  )  ");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::And);
+        assert_eq!(*expr.op(), QueryOps::And);
         assert_eq!(expr.args().len(), 2);
     }
 
     #[test]
     fn test_parse_deeply_nested() {
-        let result = Parser::<Ops>::parse_expr("And(Or(Not(true), false), Not(Or(false, true)))");
+        let result =
+            Parser::<QueryOps>::parse_expr("And(Or(Not(true), false), Not(Or(false, true)))");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::And);
+        assert_eq!(*expr.op(), QueryOps::And);
         assert_eq!(expr.args().len(), 2);
 
         // Check first argument: Or(Not(true), false)
         let first_arg = &expr.args()[0];
-        assert_eq!(*first_arg.op(), Ops::Or);
+        assert_eq!(*first_arg.op(), QueryOps::Or);
         assert_eq!(first_arg.args().len(), 2);
 
         // Check second argument: Not(Or(false, true))
         let second_arg = &expr.args()[1];
-        assert_eq!(*second_arg.op(), Ops::Not);
+        assert_eq!(*second_arg.op(), QueryOps::Not);
         assert_eq!(second_arg.args().len(), 1);
-        assert_eq!(*second_arg.args()[0].op(), Ops::Or);
+        assert_eq!(*second_arg.args()[0].op(), QueryOps::Or);
     }
 
     #[test]
     fn test_parse_pattern_variable() {
-        let result = Parser::<Ops>::parse_pattern("?x");
+        let result = Parser::<QueryOps>::parse_pattern("?x");
         assert!(result.is_ok());
         let pattern = result.unwrap();
         match pattern.op() {
@@ -277,11 +279,11 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_terminal_operator() {
-        let result = Parser::<Ops>::parse_pattern("true");
+        let result = Parser::<QueryOps>::parse_pattern("true");
         assert!(result.is_ok());
         let pattern = result.unwrap();
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::ConstBool(true)),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::ConstBool(true)),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
         assert!(pattern.args().is_empty());
@@ -289,13 +291,13 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_with_variables() {
-        let result = Parser::<Ops>::parse_pattern("And(?a, ?b)");
+        let result = Parser::<QueryOps>::parse_pattern("And(?a, ?b)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Check operator
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::And),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::And),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
@@ -317,13 +319,13 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_mixed() {
-        let result = Parser::<Ops>::parse_pattern("And(Not(?x), true)");
+        let result = Parser::<QueryOps>::parse_pattern("And(Not(?x), true)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Check top-level operator
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::And),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::And),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
@@ -332,7 +334,7 @@ mod tests {
         // First argument: Not(?x)
         let first_arg = &pattern.args()[0];
         match first_arg.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::Not),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Not),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
         assert_eq!(first_arg.args().len(), 1);
@@ -346,14 +348,14 @@ mod tests {
         // Second argument: true
         let second_arg = &pattern.args()[1];
         match second_arg.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::ConstBool(true)),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::ConstBool(true)),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
     }
 
     #[test]
     fn test_parse_pattern_empty_variable_error() {
-        let result = Parser::<Ops>::parse_pattern("?");
+        let result = Parser::<QueryOps>::parse_pattern("?");
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -362,13 +364,13 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_complex_variables() {
-        let result = Parser::<Ops>::parse_pattern("Or(And(?x, ?y), Not(?z))");
+        let result = Parser::<QueryOps>::parse_pattern("Or(And(?x, ?y), Not(?z))");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Should have Or at the top level
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::Or),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Or),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
@@ -377,7 +379,7 @@ mod tests {
         // First argument: And(?x, ?y)
         let first_arg = &pattern.args()[0];
         match first_arg.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::And),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::And),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
         assert_eq!(first_arg.args().len(), 2);
@@ -395,7 +397,7 @@ mod tests {
         // Second argument: Not(?z)
         let second_arg = &pattern.args()[1];
         match second_arg.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::Not),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Not),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
         assert_eq!(second_arg.args().len(), 1);
@@ -409,13 +411,13 @@ mod tests {
 
     #[test]
     fn test_parse_pattern_whitespace_variables() {
-        let result = Parser::<Ops>::parse_pattern("  And( ?a , ?b )  ");
+        let result = Parser::<QueryOps>::parse_pattern("  And( ?a , ?b )  ");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Check operator
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::And),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::And),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 

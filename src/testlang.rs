@@ -8,152 +8,187 @@ use std::hash::Hash;
 
 /// Represents the test language.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Ops {
-    // Constants
-    Col(String),
-    Table(String),
-    ConstStr(String),
-    ConstInt(i32),
-    ConstBool(bool),
-    // Comparison Operators
-    Eq,
-    Neq,
-    Lt,
-    Gt,
-    Le,
-    Ge,
-    // Bool Operators
-    And,
-    Or,
-    Not,
+pub enum QueryOps {
+    // ============================
+    // Constants Values
+    ConstStr(String), // String value
+    ConstInt(i32),    // Integer value
+    ConstBool(bool),  // Boolean value
+    Null,             // Null value
+    // ============================
+    // Column and Table Access
+    Col(String),              // Col(col_name)    QUESTION: Do we need both types?
+    Cols(Vec<String>),        // Col(col_names) -> unordered list of columns
+    Order(Vec<String>),       // Order(col_names) -> ordered list of columns
+    Table(String),            // Table(table_name)
+    TableCol(String, String), // TableCol(table_name, col_name)
+    Index,                    // Index(Table, Cols)
+    Access,                   // Access(Table | Index, Column, Predicate | Null)
+    // ============================
+    // Predicate Operators
+    Predicate, // TODO: Placeholder for predicate structure
+    // All of these operators take arguments of the form TableCol or other predicates
+    // All take two arguments, except Not which takes one
+    Eq,  // Eq(x, y)
+    Neq, // Neq(x, y)
+    Lt,  // Lt(x, y)
+    Gt,  // Gt(x, y)
+    Le,  // Le(x, y)
+    Ge,  // Ge(x, y)
+    And, // And(x, y)
+    Or,  // Or(x, y)
+    Not, // Not(x)
+    // TODO: Add arithmetic operators (Add, Sub, Mul, Div) if needed
+    // ============================
     // Logical Query Ops
-    Get,
-    Filter,
-    Join,
-    Project,
+    Select,  // Select(input, Cols, Predicate)
+    Join,    // Join(left, right, Predicate)
+    Project, // Project(input, Cols, Cols | Null)
+    // ============================
     // Physical Query Ops
-    Scan,
-    IndexScan,
-    Sort,
-    NLJoin,
-    SortJoin,
+    Scan,      // Scan(Table, Cols | Null, Predicate | Null)
+    IndexScan, // IndexScan(Index, Predicate | Null)
+    Sort,      // Sort(input, Order)
+    NLJoin,    // NLJoin(left, right, Predicate)
+    SortJoin,  // SortJoin(left, right, Predicate)
+               // TODO: Physical projection operator?
+               // ============================
 }
 
-impl Parseable for Ops {
+impl Parseable for QueryOps {
     /// Parse a string into an Ops enum variant.
     fn parse(s: &str) -> Result<Self, String> {
         let trimmed = s.trim();
 
         match trimmed {
-            "Eq" => Ok(Ops::Eq),
-            "Neq" => Ok(Ops::Neq),
-            "Lt" => Ok(Ops::Lt),
-            "Gt" => Ok(Ops::Gt),
-            "Le" => Ok(Ops::Le),
-            "Ge" => Ok(Ops::Ge),
-            "And" => Ok(Ops::And),
-            "Or" => Ok(Ops::Or),
-            "Not" => Ok(Ops::Not),
-            "Get" => Ok(Ops::Get),
-            "Filter" => Ok(Ops::Filter),
-            "Join" => Ok(Ops::Join),
-            "Project" => Ok(Ops::Project),
-            "Scan" => Ok(Ops::Scan),
-            "IndexScan" => Ok(Ops::IndexScan),
-            "Sort" => Ok(Ops::Sort),
-            "NLJoin" => Ok(Ops::NLJoin),
-            "SortJoin" => Ok(Ops::SortJoin),
+            "Null" => Ok(QueryOps::Null),
+            "Index" => Ok(QueryOps::Index),
+            "Access" => Ok(QueryOps::Access),
+            "Predicate" => Ok(QueryOps::Predicate),
+            "Eq" => Ok(QueryOps::Eq),
+            "Neq" => Ok(QueryOps::Neq),
+            "Lt" => Ok(QueryOps::Lt),
+            "Gt" => Ok(QueryOps::Gt),
+            "Le" => Ok(QueryOps::Le),
+            "Ge" => Ok(QueryOps::Ge),
+            "And" => Ok(QueryOps::And),
+            "Or" => Ok(QueryOps::Or),
+            "Not" => Ok(QueryOps::Not),
+            "Select" => Ok(QueryOps::Select),
+            "Join" => Ok(QueryOps::Join),
+            "Project" => Ok(QueryOps::Project),
+            "Scan" => Ok(QueryOps::Scan),
+            "IndexScan" => Ok(QueryOps::IndexScan),
+            "Sort" => Ok(QueryOps::Sort),
+            "NLJoin" => Ok(QueryOps::NLJoin),
+            "SortJoin" => Ok(QueryOps::SortJoin),
             // Boolean constants
-            "true" => Ok(Ops::ConstBool(true)),
-            "false" => Ok(Ops::ConstBool(false)),
+            "true" => Ok(QueryOps::ConstBool(true)),
+            "false" => Ok(QueryOps::ConstBool(false)),
             _ => {
                 // Try parsing as Col[x] format
                 if trimmed.starts_with("Col[") && trimmed.ends_with(']') {
                     let inner = &trimmed[4..trimmed.len() - 1]; // Extract content between Col[ and ]
-                    return Ok(Ops::Col(inner.to_string()));
+                    return Ok(QueryOps::Col(inner.to_string()));
                 }
 
                 // Try parsing as Table[x] format
                 if trimmed.starts_with("Table[") && trimmed.ends_with(']') {
                     let inner = &trimmed[6..trimmed.len() - 1]; // Extract content between Table[ and ]
-                    return Ok(Ops::Table(inner.to_string()));
+                    return Ok(QueryOps::Table(inner.to_string()));
                 }
 
                 // Try parsing as integer
                 if let Ok(i) = trimmed.parse::<i32>() {
-                    return Ok(Ops::ConstInt(i));
+                    return Ok(QueryOps::ConstInt(i));
                 }
 
                 // Try parsing as quoted string
                 if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
                     let inner = &trimmed[1..trimmed.len() - 1];
-                    return Ok(Ops::ConstStr(inner.to_string()));
+                    return Ok(QueryOps::ConstStr(inner.to_string()));
                 }
 
                 // Default to unquoted string constant
-                Ok(Ops::ConstStr(trimmed.to_string()))
+                Ok(QueryOps::ConstStr(trimmed.to_string()))
             }
         }
     }
 }
 
-impl Display for Ops {
+impl Display for QueryOps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Ops::Col(s) => write!(f, "Col({})", s),
-            Ops::Table(s) => write!(f, "Table({})", s),
-            Ops::ConstStr(s) => write!(f, "ConstStr({})", s),
-            Ops::ConstInt(i) => write!(f, "ConstInt({})", i),
-            Ops::ConstBool(b) => write!(f, "ConstBool({})", b),
-            Ops::Eq => write!(f, "=="),
-            Ops::Neq => write!(f, "!="),
-            Ops::Lt => write!(f, "<"),
-            Ops::Gt => write!(f, ">"),
-            Ops::Le => write!(f, "<="),
-            Ops::Ge => write!(f, ">="),
-            Ops::And => write!(f, "And"),
-            Ops::Or => write!(f, "Or"),
-            Ops::Not => write!(f, "Not"),
-            Ops::Get => write!(f, "Get"),
-            Ops::Filter => write!(f, "Filter"),
-            Ops::Join => write!(f, "Join"),
-            Ops::Project => write!(f, "Project"),
-            Ops::Scan => write!(f, "Scan"),
-            Ops::IndexScan => write!(f, "IndexScan"),
-            Ops::Sort => write!(f, "Sort"),
-            Ops::NLJoin => write!(f, "NLJoin"),
-            Ops::SortJoin => write!(f, "SortJoin"),
+            QueryOps::ConstStr(s) => write!(f, "ConstStr({})", s),
+            QueryOps::ConstInt(i) => write!(f, "ConstInt({})", i),
+            QueryOps::ConstBool(b) => write!(f, "ConstBool({})", b),
+            QueryOps::Null => write!(f, "Null"),
+            QueryOps::Col(s) => write!(f, "Col({})", s),
+            QueryOps::Cols(cols) => write!(f, "Cols({:?})", cols),
+            QueryOps::Order(cols) => write!(f, "Order({:?})", cols),
+            QueryOps::Table(s) => write!(f, "Table({})", s),
+            QueryOps::TableCol(table, col) => write!(f, "TableCol({}, {})", table, col),
+            QueryOps::Index => write!(f, "Index"),
+            QueryOps::Access => write!(f, "Access"),
+            QueryOps::Predicate => write!(f, "Predicate"),
+            QueryOps::Eq => write!(f, "=="),
+            QueryOps::Neq => write!(f, "!="),
+            QueryOps::Lt => write!(f, "<"),
+            QueryOps::Gt => write!(f, ">"),
+            QueryOps::Le => write!(f, "<="),
+            QueryOps::Ge => write!(f, ">="),
+            QueryOps::And => write!(f, "And"),
+            QueryOps::Or => write!(f, "Or"),
+            QueryOps::Not => write!(f, "Not"),
+            QueryOps::Select => write!(f, "Select"),
+            QueryOps::Join => write!(f, "Join"),
+            QueryOps::Project => write!(f, "Project"),
+            QueryOps::Scan => write!(f, "Scan"),
+            QueryOps::IndexScan => write!(f, "IndexScan"),
+            QueryOps::Sort => write!(f, "Sort"),
+            QueryOps::NLJoin => write!(f, "NLJoin"),
+            QueryOps::SortJoin => write!(f, "SortJoin"),
         }
     }
 }
 
-impl OpLang for Ops {
+impl OpLang for QueryOps {
     impl_oplang_default!();
 
     fn arity(&self) -> usize {
         match self {
             // Constants have arity 0
-            Ops::Col(_)
-            | Ops::Table(_)
-            | Ops::ConstStr(_)
-            | Ops::ConstInt(_)
-            | Ops::ConstBool(_) => 0,
-            // Comparison operators have arity 2
-            Ops::Eq | Ops::Neq | Ops::Lt | Ops::Gt | Ops::Le | Ops::Ge => 2,
-            // Boolean operators
-            Ops::Not => 1,
-            Ops::And | Ops::Or => 2,
-            // Logical query ops
-            Ops::Get => 2,     // Get(Table, Column)
-            Ops::Filter => 2,  // Filter(Input, Condition)
-            Ops::Join => 3,    // Join(Left, Right, Condition)
-            Ops::Project => 2, // Project(Input, Columns)
-            // Physical query ops
-            Ops::Scan => 1,      // Scan(Table)
-            Ops::IndexScan => 2, // IndexScan(Table, Column)
-            Ops::Sort => 2,      // Sort(Input, Columns)
-            Ops::NLJoin => 3,    // NLJoin(Left, Right, Condition)
-            Ops::SortJoin => 3,  // SortJoin(Left, Right, Condition)
+            QueryOps::ConstStr(_)
+            | QueryOps::ConstInt(_)
+            | QueryOps::ConstBool(_)
+            | QueryOps::Null
+            | QueryOps::Col(_)
+            | QueryOps::Cols(_)
+            | QueryOps::Order(_)
+            | QueryOps::Table(_)
+            | QueryOps::Predicate => 0,
+            // Unary operators
+            QueryOps::Not => 1,
+            // Binary operators
+            QueryOps::Eq
+            | QueryOps::Neq
+            | QueryOps::Lt
+            | QueryOps::Gt
+            | QueryOps::Le
+            | QueryOps::Ge => 2,
+            QueryOps::And | QueryOps::Or => 2,
+            QueryOps::TableCol(_, _) => 2,
+            // Query operators
+            QueryOps::Index => 2,     // Index(Table, Cols)
+            QueryOps::Access => 3,    // Access(Table | Index, Column, Predicate | Null)
+            QueryOps::Select => 3,    // Select(input, Cols, Predicate)
+            QueryOps::Project => 2,   // Project(input, Cols)
+            QueryOps::Scan => 3,      // Scan(Table, Cols | Null, Predicate | Null)
+            QueryOps::IndexScan => 2, // IndexScan(Index, Predicate | Null)
+            QueryOps::Sort => 2,      // Sort(input, Order)
+            QueryOps::Join => 3,      // Join(left, right, Predicate)
+            QueryOps::NLJoin => 3,    // NLJoin(left, right, Predicate)
+            QueryOps::SortJoin => 3,  // SortJoin(left, right, Predicate)
         }
     }
 }
@@ -224,10 +259,10 @@ impl PartialOrd for PhysicalPropertySet {
     }
 }
 
-impl From<Ops> for PhysicalPropertySet {
-    fn from(op: Ops) -> Self {
+impl From<QueryOps> for PhysicalPropertySet {
+    fn from(op: QueryOps) -> Self {
         match op {
-            Ops::Col(s) => PhysicalPropertySet::from_cols(s),
+            QueryOps::Col(s) => PhysicalPropertySet::from_cols(s),
             _ => PhysicalPropertySet::bottom(),
         }
     }
@@ -239,175 +274,181 @@ mod tests {
 
     #[test]
     fn test_parse_boolean_constants() {
-        let result = Ops::parse("true");
+        let result = QueryOps::parse("true");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstBool(true));
+        assert_eq!(result.unwrap(), QueryOps::ConstBool(true));
 
-        let result = Ops::parse("false");
+        let result = QueryOps::parse("false");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstBool(false));
+        assert_eq!(result.unwrap(), QueryOps::ConstBool(false));
     }
 
     #[test]
     fn test_parse_integer_constants() {
-        let result = Ops::parse("100");
+        let result = QueryOps::parse("100");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstInt(100));
+        assert_eq!(result.unwrap(), QueryOps::ConstInt(100));
 
-        let result = Ops::parse("-2");
+        let result = QueryOps::parse("-2");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstInt(-2));
+        assert_eq!(result.unwrap(), QueryOps::ConstInt(-2));
 
-        let result = Ops::parse("0");
+        let result = QueryOps::parse("0");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstInt(0));
+        assert_eq!(result.unwrap(), QueryOps::ConstInt(0));
     }
 
     #[test]
     fn test_parse_col_and_table() {
-        let result = Ops::parse("Col[x]");
+        let result = QueryOps::parse("Col[x]");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::Col("x".to_string()));
+        assert_eq!(result.unwrap(), QueryOps::Col("x".to_string()));
 
-        let result = Ops::parse("Table[users]");
+        let result = QueryOps::parse("Table[users]");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::Table("users".to_string()));
+        assert_eq!(result.unwrap(), QueryOps::Table("users".to_string()));
 
-        let result = Ops::parse("Col[some_column]");
+        let result = QueryOps::parse("Col[some_column]");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::Col("some_column".to_string()));
+        assert_eq!(result.unwrap(), QueryOps::Col("some_column".to_string()));
     }
 
     #[test]
     fn test_parseerators() {
-        let result = Ops::parse("And");
+        let result = QueryOps::parse("And");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::And);
+        assert_eq!(result.unwrap(), QueryOps::And);
 
-        let result = Ops::parse("Or");
+        let result = QueryOps::parse("Or");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::Or);
+        assert_eq!(result.unwrap(), QueryOps::Or);
 
-        let result = Ops::parse("Not");
+        let result = QueryOps::parse("Not");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::Not);
+        assert_eq!(result.unwrap(), QueryOps::Not);
 
-        let result = Ops::parse("Eq");
+        let result = QueryOps::parse("Eq");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::Eq);
+        assert_eq!(result.unwrap(), QueryOps::Eq);
     }
 
     #[test]
     fn test_parse_string_constants() {
-        let result = Ops::parse("hello");
+        let result = QueryOps::parse("hello");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstStr("hello".to_string()));
+        assert_eq!(result.unwrap(), QueryOps::ConstStr("hello".to_string()));
 
-        let result = Ops::parse("some_string");
+        let result = QueryOps::parse("some_string");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstStr("some_string".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            QueryOps::ConstStr("some_string".to_string())
+        );
     }
 
     #[test]
     fn test_parse_variable_error() {
         // Variables starting with '?' should be parsed as string constants now
         // since the FromStr implementation doesn't reject them
-        let result = Ops::parse("?x");
+        let result = QueryOps::parse("?x");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstStr("?x".to_string()));
+        assert_eq!(result.unwrap(), QueryOps::ConstStr("?x".to_string()));
     }
 
     #[test]
     fn test_parse_whitespace_handling() {
-        let result = Ops::parse("  true  ");
+        let result = QueryOps::parse("  true  ");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstBool(true));
+        assert_eq!(result.unwrap(), QueryOps::ConstBool(true));
 
-        let result = Ops::parse("  100  ");
+        let result = QueryOps::parse("  100  ");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::ConstInt(100));
+        assert_eq!(result.unwrap(), QueryOps::ConstInt(100));
 
-        let result = Ops::parse("  And  ");
+        let result = QueryOps::parse("  And  ");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), Ops::And);
+        assert_eq!(result.unwrap(), QueryOps::And);
     }
 
     #[test]
     fn test_parse_expr_with_ops_parser() {
         // Test parsing a simple expression with the new Parser struct
-        let result = Parser::<Ops>::parse_expr("And(true, false)");
+        let result = Parser::<QueryOps>::parse_expr("And(true, false)");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::And);
+        assert_eq!(*expr.op(), QueryOps::And);
         assert_eq!(expr.args().len(), 2);
-        assert_eq!(*expr.args()[0].op(), Ops::ConstBool(true));
-        assert_eq!(*expr.args()[1].op(), Ops::ConstBool(false));
+        assert_eq!(*expr.args()[0].op(), QueryOps::ConstBool(true));
+        assert_eq!(*expr.args()[1].op(), QueryOps::ConstBool(false));
     }
 
     #[test]
     fn test_parse_expr_with_constants() {
         // Test parsing with integer constants
-        let result = Parser::<Ops>::parse_expr("Eq(100, -50)");
+        let result = Parser::<QueryOps>::parse_expr("Eq(100, -50)");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::Eq);
+        assert_eq!(*expr.op(), QueryOps::Eq);
         assert_eq!(expr.args().len(), 2);
-        assert_eq!(*expr.args()[0].op(), Ops::ConstInt(100));
-        assert_eq!(*expr.args()[1].op(), Ops::ConstInt(-50));
+        assert_eq!(*expr.args()[0].op(), QueryOps::ConstInt(100));
+        assert_eq!(*expr.args()[1].op(), QueryOps::ConstInt(-50));
     }
 
     #[test]
     fn test_parse_expr_with_col_table() {
-        let result = Parser::<Ops>::parse_expr("Get(Table[users], Col[id])");
+        let result = Parser::<QueryOps>::parse_expr("Access(Table[users], Col[id])");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::Get);
+        assert_eq!(*expr.op(), QueryOps::Access);
         assert_eq!(expr.args().len(), 2);
-        assert_eq!(*expr.args()[0].op(), Ops::Table("users".to_string()));
-        assert_eq!(*expr.args()[1].op(), Ops::Col("id".to_string()));
+        assert_eq!(*expr.args()[0].op(), QueryOps::Table("users".to_string()));
+        assert_eq!(*expr.args()[1].op(), QueryOps::Col("id".to_string()));
     }
 
     #[test]
     fn test_parse_complex_expressions_with_square_brackets() {
         // Test a more complex expression with nested Col[] and Table[]
-        let result = Parser::<Ops>::parse_expr(
-            "Filter(Scan(Table[employees]), Eq(Col[department], engineering))",
+        let result = Parser::<QueryOps>::parse_expr(
+            "Select(Scan(Table[employees]), Eq(Col[department], engineering))",
         );
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), Ops::Filter);
+        assert_eq!(*expr.op(), QueryOps::Select);
         assert_eq!(expr.args().len(), 2);
 
         // First argument: Scan(Table[employees])
         let scan_expr = &expr.args()[0];
-        assert_eq!(*scan_expr.op(), Ops::Scan);
+        assert_eq!(*scan_expr.op(), QueryOps::Scan);
         assert_eq!(scan_expr.args().len(), 1);
         assert_eq!(
             *scan_expr.args()[0].op(),
-            Ops::Table("employees".to_string())
+            QueryOps::Table("employees".to_string())
         );
 
         // Second argument: Eq(Col[department], engineering)
         let eq_expr = &expr.args()[1];
-        assert_eq!(*eq_expr.op(), Ops::Eq);
+        assert_eq!(*eq_expr.op(), QueryOps::Eq);
         assert_eq!(eq_expr.args().len(), 2);
-        assert_eq!(*eq_expr.args()[0].op(), Ops::Col("department".to_string()));
+        assert_eq!(
+            *eq_expr.args()[0].op(),
+            QueryOps::Col("department".to_string())
+        );
         assert_eq!(
             *eq_expr.args()[1].op(),
-            Ops::ConstStr("engineering".to_string())
+            QueryOps::ConstStr("engineering".to_string())
         );
     }
 
     #[test]
     fn test_pattern_parsing_with_square_brackets() {
         // Test pattern parsing with variables in a simpler form
-        let result = Parser::<Ops>::parse_pattern("Get(?table_expr, ?column_expr)");
+        let result = Parser::<QueryOps>::parse_pattern("Access(?table_expr, ?column_expr)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Check top-level operator
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::Get),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Access),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
@@ -429,13 +470,13 @@ mod tests {
     #[test]
     fn test_pattern_parsing_with_concrete_square_brackets() {
         // Test pattern parsing with concrete Table[] and Col[] mixed with variables
-        let result = Parser::<Ops>::parse_pattern("Get(Table[users], ?column_var)");
+        let result = Parser::<QueryOps>::parse_pattern("Access(Table[users], ?column_var)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Check top-level operator
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::Get),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Access),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
@@ -443,7 +484,7 @@ mod tests {
 
         // First argument: Table[users] - should be parsed as a concrete Table operator
         match pattern.args()[0].op() {
-            OpOrVar::Op(op) => assert_eq!(*op, Ops::Table("users".to_string())),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Table("users".to_string())),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 

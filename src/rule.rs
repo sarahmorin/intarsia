@@ -26,14 +26,69 @@ where
     }
 }
 
-macro_rules! rule {
-    ($name:expr, $pattern:expr, $replacement:expr) => {
+/// Macro to create rewrite rules easily.
+///
+/// This macro provides two forms:
+///
+/// 1. **Generic form** (recommended for new code):
+///    ```rust
+///    let rule = mk_rule!(MyLanguage, "rule_name", "pattern_string", "replacement_string");
+///    ```
+///    
+/// 2. **Legacy form** (for backward compatibility):
+///    ```rust  
+///    let rule = mk_rule!("rule_name", "pattern_string", "replacement_string");
+///    ```
+///    This defaults to using the `Ops` language from the test module.
+///
+/// # Arguments
+///
+/// * `$lang` (optional) - The language type that implements `OpLang + Parseable`
+/// * `$name` - A string expression for the rule name
+/// * `$pattern` - A string expression representing the pattern to match
+/// * `$replacement` - A string expression representing the replacement pattern
+///
+/// # Examples
+///
+/// ```rust
+/// use crate::mk_rule;
+/// use crate::testlang::Ops;
+///
+/// // Using the generic form
+/// let rule1 = mk_rule!(Ops, "and_to_or", "And(?x, ?y)", "Or(?x, ?y)");
+///
+/// // Using the legacy form (defaults to Ops)
+/// let rule2 = mk_rule!("double_negation", "Not(Not(?x))", "?x");
+/// ```
+///
+/// # Panics
+///
+/// This macro will panic if the pattern or replacement strings cannot be parsed.
+/// Make sure your patterns are valid for the specified language.
+#[macro_export]
+macro_rules! mk_rule {
+    ($lang:ty, $name:expr, $pattern:expr, $replacement:expr) => {{
+        use $crate::parser::Parser;
+        use $crate::rule::Rule;
+
         Rule::new(
             $name.to_string(),
-            Parser::parse_pattern($pattern).expect("Failed to parse pattern"),
-            Parser::parse_pattern($replacement).expect("Failed to parse replacement"),
+            Parser::<$lang>::parse_pattern($pattern).expect("Failed to parse pattern"),
+            Parser::<$lang>::parse_pattern($replacement).expect("Failed to parse replacement"),
         )
-    };
+    }};
+    // Backward compatibility - defaults to Ops for existing code
+    ($name:expr, $pattern:expr, $replacement:expr) => {{
+        use $crate::parser::Parser;
+        use $crate::rule::Rule;
+        use $crate::testlang::QueryOps;
+
+        Rule::new(
+            $name.to_string(),
+            Parser::<QueryOps>::parse_pattern($pattern).expect("Failed to parse pattern"),
+            Parser::<QueryOps>::parse_pattern($replacement).expect("Failed to parse replacement"),
+        )
+    }};
 }
 
 // NOTE: We can pick more interesting structs here, could be a place to allow for user-defined organization
@@ -84,13 +139,14 @@ where
 mod tests {
     use super::*;
     use crate::parser::Parser;
-    use crate::testlang::Ops;
+    use crate::testlang::QueryOps;
 
     #[test]
     fn test_rule_creation() {
-        let pattern = Parser::<Ops>::parse_pattern("And(?a, ?b)").expect("Failed to parse pattern");
+        let pattern =
+            Parser::<QueryOps>::parse_pattern("And(?a, ?b)").expect("Failed to parse pattern");
         let replacement =
-            Parser::<Ops>::parse_pattern("Or(?a, ?b)").expect("Failed to parse replacement");
+            Parser::<QueryOps>::parse_pattern("Or(?a, ?b)").expect("Failed to parse replacement");
 
         let rule = Rule::new(
             "test_rule".to_string(),
@@ -105,20 +161,20 @@ mod tests {
 
     #[test]
     fn test_rule_macro_basic() {
-        let rule = rule!("and_to_or", "And(?x, ?y)", "Or(?x, ?y)");
+        let rule = mk_rule!("and_to_or", "And(?x, ?y)", "Or(?x, ?y)");
 
         assert_eq!(rule.name, "and_to_or");
 
         // Check pattern structure
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation in pattern"),
         }
         assert_eq!(rule.pattern.args().len(), 2);
 
         // Check replacement structure
         match rule.replacement.op() {
-            OpOrVar::Op(Ops::Or) => {}
+            OpOrVar::Op(QueryOps::Or) => {}
             _ => panic!("Expected Or operation in replacement"),
         }
         assert_eq!(rule.replacement.args().len(), 2);
@@ -126,13 +182,13 @@ mod tests {
 
     #[test]
     fn test_rule_macro_with_variables() {
-        let rule = rule!("double_negation", "Not(Not(?x))", "?x");
+        let rule = mk_rule!("double_negation", "Not(Not(?x))", "?x");
 
         assert_eq!(rule.name, "double_negation");
 
         // Check pattern: Not(Not(?x))
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::Not) => {}
+            OpOrVar::Op(QueryOps::Not) => {}
             _ => panic!("Expected Not operation in pattern"),
         }
         assert_eq!(rule.pattern.args().len(), 1);
@@ -140,7 +196,7 @@ mod tests {
         // Inner Not(?x)
         let inner_not = &rule.pattern.args()[0];
         match inner_not.op() {
-            OpOrVar::Op(Ops::Not) => {}
+            OpOrVar::Op(QueryOps::Not) => {}
             _ => panic!("Expected inner Not operation"),
         }
         assert_eq!(inner_not.args().len(), 1);
@@ -161,13 +217,13 @@ mod tests {
 
     #[test]
     fn test_rule_macro_with_constants() {
-        let rule = rule!("simplify_and_true", "And(?x, true)", "?x");
+        let rule = mk_rule!("simplify_and_true", "And(?x, true)", "?x");
 
         assert_eq!(rule.name, "simplify_and_true");
 
         // Check pattern: And(?x, true)
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation in pattern"),
         }
         assert_eq!(rule.pattern.args().len(), 2);
@@ -180,7 +236,7 @@ mod tests {
 
         // Second argument: true
         match rule.pattern.args()[1].op() {
-            OpOrVar::Op(Ops::ConstBool(true)) => {}
+            OpOrVar::Op(QueryOps::ConstBool(true)) => {}
             _ => panic!("Expected true constant"),
         }
 
@@ -193,7 +249,7 @@ mod tests {
 
     #[test]
     fn test_rule_macro_complex_expression() {
-        let rule = rule!(
+        let rule = mk_rule!(
             "complex_rule",
             "Or(And(?a, ?b), Not(?c))",
             "And(Or(?a, Not(?c)), Or(?b, Not(?c)))"
@@ -203,7 +259,7 @@ mod tests {
 
         // Check pattern: Or(And(?a, ?b), Not(?c))
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::Or) => {}
+            OpOrVar::Op(QueryOps::Or) => {}
             _ => panic!("Expected Or operation in pattern"),
         }
         assert_eq!(rule.pattern.args().len(), 2);
@@ -211,7 +267,7 @@ mod tests {
         // First argument: And(?a, ?b)
         let and_expr = &rule.pattern.args()[0];
         match and_expr.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation"),
         }
         assert_eq!(and_expr.args().len(), 2);
@@ -219,14 +275,14 @@ mod tests {
         // Second argument: Not(?c)
         let not_expr = &rule.pattern.args()[1];
         match not_expr.op() {
-            OpOrVar::Op(Ops::Not) => {}
+            OpOrVar::Op(QueryOps::Not) => {}
             _ => panic!("Expected Not operation"),
         }
         assert_eq!(not_expr.args().len(), 1);
 
         // Check replacement structure
         match rule.replacement.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation in replacement"),
         }
         assert_eq!(rule.replacement.args().len(), 2);
@@ -234,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_rule_macro_with_database_ops() {
-        let rule = rule!(
+        let rule = mk_rule!(
             "scan_to_index_scan",
             "Scan(Table[users])",
             "IndexScan(Table[users], Col[id])"
@@ -244,40 +300,40 @@ mod tests {
 
         // Check pattern: Scan(Table[users])
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::Scan) => {}
+            OpOrVar::Op(QueryOps::Scan) => {}
             _ => panic!("Expected Scan operation in pattern"),
         }
         assert_eq!(rule.pattern.args().len(), 1);
 
         match rule.pattern.args()[0].op() {
-            OpOrVar::Op(Ops::Table(name)) => assert_eq!(name, "users"),
+            OpOrVar::Op(QueryOps::Table(name)) => assert_eq!(name, "users"),
             _ => panic!("Expected Table[users]"),
         }
 
         // Check replacement: IndexScan(Table[users], Col[id])
         match rule.replacement.op() {
-            OpOrVar::Op(Ops::IndexScan) => {}
+            OpOrVar::Op(QueryOps::IndexScan) => {}
             _ => panic!("Expected IndexScan operation in replacement"),
         }
         assert_eq!(rule.replacement.args().len(), 2);
 
         match rule.replacement.args()[0].op() {
-            OpOrVar::Op(Ops::Table(name)) => assert_eq!(name, "users"),
+            OpOrVar::Op(QueryOps::Table(name)) => assert_eq!(name, "users"),
             _ => panic!("Expected Table[users] in replacement"),
         }
 
         match rule.replacement.args()[1].op() {
-            OpOrVar::Op(Ops::Col(name)) => assert_eq!(name, "id"),
+            OpOrVar::Op(QueryOps::Col(name)) => assert_eq!(name, "id"),
             _ => panic!("Expected Col[id] in replacement"),
         }
     }
 
     #[test]
     fn test_rule_set_add_and_get() {
-        let mut rule_set: Vec<Rule<Ops>> = Vec::new();
+        let mut rule_set: Vec<Rule<QueryOps>> = Vec::new();
 
-        let rule1 = rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule2 = rule!("rule2", "Not(Not(?x))", "?x");
+        let rule1 = mk_rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule2 = mk_rule!("rule2", "Not(Not(?x))", "?x");
 
         rule_set.add_rule(rule1);
         rule_set.add_rule(rule2);
@@ -296,11 +352,11 @@ mod tests {
 
     #[test]
     fn test_rule_set_get_by_name() {
-        let mut rule_set: Vec<Rule<Ops>> = Vec::new();
+        let mut rule_set: Vec<Rule<QueryOps>> = Vec::new();
 
-        let rule1 = rule!("and_to_or", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule2 = rule!("double_negation", "Not(Not(?x))", "?x");
-        let rule3 = rule!("simplify_true", "And(?x, true)", "?x");
+        let rule1 = mk_rule!("and_to_or", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule2 = mk_rule!("double_negation", "Not(Not(?x))", "?x");
+        let rule3 = mk_rule!("simplify_true", "And(?x, true)", "?x");
 
         rule_set.add_rule(rule1);
         rule_set.add_rule(rule2);
@@ -327,11 +383,11 @@ mod tests {
 
     #[test]
     fn test_rule_set_remove() {
-        let mut rule_set: Vec<Rule<Ops>> = Vec::new();
+        let mut rule_set: Vec<Rule<QueryOps>> = Vec::new();
 
-        let rule1 = rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule2 = rule!("rule2", "Not(Not(?x))", "?x");
-        let rule3 = rule!("rule3", "And(?x, true)", "?x");
+        let rule1 = mk_rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule2 = mk_rule!("rule2", "Not(Not(?x))", "?x");
+        let rule3 = mk_rule!("rule3", "And(?x, true)", "?x");
 
         rule_set.add_rule(rule1.clone());
         rule_set.add_rule(rule2.clone());
@@ -361,10 +417,10 @@ mod tests {
 
     #[test]
     fn test_rule_set_remove_nonexistent() {
-        let mut rule_set: Vec<Rule<Ops>> = Vec::new();
+        let mut rule_set: Vec<Rule<QueryOps>> = Vec::new();
 
-        let rule1 = rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule2 = rule!("rule2", "Not(Not(?x))", "?x");
+        let rule1 = mk_rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule2 = mk_rule!("rule2", "Not(Not(?x))", "?x");
 
         rule_set.add_rule(rule1);
 
@@ -378,10 +434,10 @@ mod tests {
 
     #[test]
     fn test_rule_set_rules_reference() {
-        let mut rule_set: Vec<Rule<Ops>> = Vec::new();
+        let mut rule_set: Vec<Rule<QueryOps>> = Vec::new();
 
-        let rule1 = rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule2 = rule!("rule2", "Not(Not(?x))", "?x");
+        let rule1 = mk_rule!("rule1", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule2 = mk_rule!("rule2", "Not(Not(?x))", "?x");
 
         rule_set.add_rule(rule1);
         rule_set.add_rule(rule2);
@@ -394,13 +450,13 @@ mod tests {
 
     #[test]
     fn test_rule_with_multiple_variables() {
-        let rule = rule!("commutative_and", "And(?x, ?y)", "And(?y, ?x)");
+        let rule = mk_rule!("commutative_and", "And(?x, ?y)", "And(?y, ?x)");
 
         assert_eq!(rule.name, "commutative_and");
 
         // Verify pattern has correct structure
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation in pattern"),
         }
 
@@ -417,7 +473,7 @@ mod tests {
 
         // Verify replacement has swapped variables
         match rule.replacement.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation in replacement"),
         }
 
@@ -435,79 +491,104 @@ mod tests {
 
     #[test]
     fn test_rule_with_nested_variables() {
-        let rule = rule!("distribute_not", "Not(And(?a, ?b))", "Or(Not(?a), Not(?b))");
+        let rule = mk_rule!("distribute_not", "Not(And(?a, ?b))", "Or(Not(?a), Not(?b))");
 
         assert_eq!(rule.name, "distribute_not");
 
         // Check pattern: Not(And(?a, ?b))
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::Not) => {}
+            OpOrVar::Op(QueryOps::Not) => {}
             _ => panic!("Expected Not operation in pattern"),
         }
 
         let inner_and = &rule.pattern.args()[0];
         match inner_and.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation inside Not"),
         }
 
         // Check replacement: Or(Not(?a), Not(?b))
         match rule.replacement.op() {
-            OpOrVar::Op(Ops::Or) => {}
+            OpOrVar::Op(QueryOps::Or) => {}
             _ => panic!("Expected Or operation in replacement"),
         }
 
         let first_not = &rule.replacement.args()[0];
         match first_not.op() {
-            OpOrVar::Op(Ops::Not) => {}
+            OpOrVar::Op(QueryOps::Not) => {}
             _ => panic!("Expected Not operation in first argument"),
         }
 
         let second_not = &rule.replacement.args()[1];
         match second_not.op() {
-            OpOrVar::Op(Ops::Not) => {}
+            OpOrVar::Op(QueryOps::Not) => {}
             _ => panic!("Expected Not operation in second argument"),
         }
     }
 
     #[test]
     fn test_rule_with_database_variables() {
-        let rule = rule!(
+        let rule = mk_rule!(
             "filter_pushdown",
-            "Filter(Join(?t1, ?t2), ?condition)",
-            "Join(Filter(?t1, ?condition), ?t2)"
+            "Select(Join(?t1, ?t2), ?columns, ?condition)",
+            "Join(Select(?t1, ?columns, ?condition), ?t2)"
         );
 
         assert_eq!(rule.name, "filter_pushdown");
 
         // Check pattern structure
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::Filter) => {}
-            _ => panic!("Expected Filter operation in pattern"),
+            OpOrVar::Op(QueryOps::Select) => {}
+            _ => panic!("Expected Select operation in pattern"),
         }
 
         let join_expr = &rule.pattern.args()[0];
         match join_expr.op() {
-            OpOrVar::Op(Ops::Join) => {}
+            OpOrVar::Op(QueryOps::Join) => {}
             _ => panic!("Expected Join operation"),
         }
 
+        // Should have 3 arguments: input (Join), columns, condition
+        assert_eq!(rule.pattern.args().len(), 3);
+
         // Check replacement structure
         match rule.replacement.op() {
-            OpOrVar::Op(Ops::Join) => {}
+            OpOrVar::Op(QueryOps::Join) => {}
             _ => panic!("Expected Join operation in replacement"),
         }
 
         let filter_expr = &rule.replacement.args()[0];
         match filter_expr.op() {
-            OpOrVar::Op(Ops::Filter) => {}
-            _ => panic!("Expected Filter operation in replacement"),
+            OpOrVar::Op(QueryOps::Select) => {}
+            _ => panic!("Expected Select operation in replacement"),
+        }
+    }
+
+    #[test]
+    fn test_rule_macro_with_explicit_type() {
+        use crate::testlang::QueryOps;
+
+        // Test new generic form of the macro
+        let rule = mk_rule!(QueryOps, "explicit_type_rule", "And(?x, ?y)", "Or(?x, ?y)");
+
+        assert_eq!(rule.name, "explicit_type_rule");
+
+        // Check pattern structure
+        match rule.pattern.op() {
+            OpOrVar::Op(QueryOps::And) => {}
+            _ => panic!("Expected And operation in pattern"),
+        }
+
+        // Check replacement structure
+        match rule.replacement.op() {
+            OpOrVar::Op(QueryOps::Or) => {}
+            _ => panic!("Expected Or operation in replacement"),
         }
     }
 
     #[test]
     fn test_empty_rule_set() {
-        let rule_set: Vec<Rule<Ops>> = Vec::new();
+        let rule_set: Vec<Rule<QueryOps>> = Vec::new();
 
         assert_eq!(rule_set.rules().len(), 0);
         assert!(rule_set.get_rule(0).is_none());
@@ -519,7 +600,7 @@ mod tests {
         // Test that the macro properly panics on invalid patterns
         // This is expected behavior since we use .expect() in the macro
         let result = std::panic::catch_unwind(|| {
-            let _rule: Rule<Ops> = rule!("invalid_rule", "And(?a", "Or(?a, ?b)");
+            let _rule: Rule<QueryOps> = mk_rule!("invalid_rule", "And(?a", "Or(?a, ?b)");
             _rule
         });
         assert!(result.is_err());
@@ -527,13 +608,13 @@ mod tests {
 
     #[test]
     fn test_rule_with_same_variable_multiple_times() {
-        let rule = rule!("identity_rule", "And(?x, ?x)", "?x");
+        let rule = mk_rule!("identity_rule", "And(?x, ?x)", "?x");
 
         assert_eq!(rule.name, "identity_rule");
 
         // Check pattern: And(?x, ?x)
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::And) => {}
+            OpOrVar::Op(QueryOps::And) => {}
             _ => panic!("Expected And operation in pattern"),
         }
 
@@ -557,11 +638,11 @@ mod tests {
 
     #[test]
     fn test_rule_set_operations_ordering() {
-        let mut rule_set: Vec<Rule<Ops>> = Vec::new();
+        let mut rule_set: Vec<Rule<QueryOps>> = Vec::new();
 
-        let rule1 = rule!("first", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule2 = rule!("second", "Not(Not(?x))", "?x");
-        let rule3 = rule!("third", "Or(?x, false)", "?x");
+        let rule1 = mk_rule!("first", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule2 = mk_rule!("second", "Not(Not(?x))", "?x");
+        let rule3 = mk_rule!("third", "Or(?x, false)", "?x");
 
         rule_set.add_rule(rule1);
         rule_set.add_rule(rule2);
@@ -573,7 +654,7 @@ mod tests {
         assert_eq!(rule_set.get_rule(2).unwrap().name, "third");
 
         // Remove middle rule
-        let rule_to_remove = rule!("second", "Not(Not(?x))", "?x");
+        let rule_to_remove = mk_rule!("second", "Not(Not(?x))", "?x");
         rule_set.remove_rule(&rule_to_remove);
 
         // Check that ordering is maintained after removal
@@ -584,41 +665,41 @@ mod tests {
 
     #[test]
     fn test_rule_with_integer_constants() {
-        let rule = rule!("constant_folding", "Add(42, 0)", "42");
+        let rule = mk_rule!("constant_folding", "Add(42, 0)", "42");
 
         assert_eq!(rule.name, "constant_folding");
 
         // Check pattern: Add(42, 0)
         match rule.pattern.op() {
-            OpOrVar::Op(Ops::ConstStr(op)) => assert_eq!(op, "Add"),
+            OpOrVar::Op(QueryOps::ConstStr(op)) => assert_eq!(op, "Add"),
             _ => panic!("Expected Add operation in pattern"),
         }
 
         match rule.pattern.args()[0].op() {
-            OpOrVar::Op(Ops::ConstInt(42)) => {}
+            OpOrVar::Op(QueryOps::ConstInt(42)) => {}
             _ => panic!("Expected constant 42"),
         }
 
         match rule.pattern.args()[1].op() {
-            OpOrVar::Op(Ops::ConstInt(0)) => {}
+            OpOrVar::Op(QueryOps::ConstInt(0)) => {}
             _ => panic!("Expected constant 0"),
         }
 
         // Check replacement: 42
         match rule.replacement.op() {
-            OpOrVar::Op(Ops::ConstInt(42)) => {}
+            OpOrVar::Op(QueryOps::ConstInt(42)) => {}
             _ => panic!("Expected constant 42 in replacement"),
         }
     }
 
     #[test]
     fn test_rule_comparison() {
-        let rule1 = rule!("test_rule", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule2 = rule!("test_rule", "And(?a, ?b)", "Or(?a, ?b)");
-        let rule3 = rule!("different_rule", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule1 = mk_rule!("test_rule", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule2 = mk_rule!("test_rule", "And(?a, ?b)", "Or(?a, ?b)");
+        let rule3 = mk_rule!("different_rule", "And(?a, ?b)", "Or(?a, ?b)");
 
         // Rules with same name should be considered equal for removal purposes
-        let mut rule_set: Vec<Rule<Ops>> = Vec::new();
+        let mut rule_set: Vec<Rule<QueryOps>> = Vec::new();
         rule_set.add_rule(rule1);
         assert_eq!(rule_set.rules().len(), 1);
 
@@ -627,7 +708,7 @@ mod tests {
         assert_eq!(rule_set.rules().len(), 0);
 
         // Add rule back and try removing with different name
-        rule_set.add_rule(rule!("test_rule", "And(?a, ?b)", "Or(?a, ?b)"));
+        rule_set.add_rule(mk_rule!("test_rule", "And(?a, ?b)", "Or(?a, ?b)"));
         rule_set.remove_rule(&rule3);
         assert_eq!(rule_set.rules().len(), 1); // Should not be removed
     }
