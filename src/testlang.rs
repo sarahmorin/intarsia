@@ -6,53 +6,54 @@ use bitmaps::Bitmap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
-/// Represents the test language.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub type TableName = String;
+pub type ColumnName = String;
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum QueryOps {
     // ============================
-    // Constants Values
-    ConstStr(String), // String value
-    ConstInt(i32),    // Integer value
-    ConstBool(bool),  // Boolean value
-    Null,             // Null value
+    // Basic Relational Algebra Operations
+    Select,     // Select(input, predicate)
+    Join,       // Join(left, right, predicate)
+    Project,    // Project(input, columns)
     // ============================
-    // Column and Table Access
-    Col(String),              // Col(col_name)    QUESTION: Do we need both types?
-    Cols(Vec<String>),        // Col(col_names) -> unordered list of columns
-    Order(Vec<String>),       // Order(col_names) -> ordered list of columns
-    Table(String),            // Table(table_name)
-    TableCol(String, String), // TableCol(table_name, col_name)
-    Index,                    // Index(Table, Cols)
-    Access,                   // Access(Table | Index, Column, Predicate | Null)
+    // Basic Access Methods
+    TableScan,  // TableScan(table, columns)
+    IndexScan,  // IndexScan(table, index)
+    HashLookup, // HashLookup(table, key)
+    // ============================
+    // Tables, Columns, and Values
+    Table(TableName),
+    // Column(TableName, ColumnName),
+    ColumnSet(TableName, Vec<ColumnName>),
+    ConstStr(String),
+    ConstInt(i64),
+    ConstBool(bool),
+    Null,
     // ============================
     // Predicate Operators
-    Predicate, // TODO: Placeholder for predicate structure
-    // All of these operators take arguments of the form TableCol or other predicates
-    // All take two arguments, except Not which takes one
-    Eq,  // Eq(x, y)
-    Neq, // Neq(x, y)
-    Lt,  // Lt(x, y)
-    Gt,  // Gt(x, y)
-    Le,  // Le(x, y)
-    Ge,  // Ge(x, y)
-    And, // And(x, y)
-    Or,  // Or(x, y)
-    Not, // Not(x)
-    // TODO: Add arithmetic operators (Add, Sub, Mul, Div) if needed
+    Eq,         // Eq(left, right)
+    Neq,        // Neq(left, right)
+    Gt,         // Gt(left, right)
+    Lt,         // Lt(left, right)
+    Gte,       // Gte(left, right)
+    Lte,       // Lte(left, right)
+    And,       // And(left, right)
+    Or,        // Or(left, right)
+    Not,       // Not(expr)
     // ============================
-    // Logical Query Ops
-    Select,  // Select(input, Cols, Predicate)
-    Join,    // Join(left, right, Predicate)
-    Project, // Project(input, Cols, Cols | Null)
+    // Arithmetic Operators
+    Add,   // Add(left, right)
+    Sub,   // Sub(left, right)
+    Mul,   // Mul(left, right)
+    Div,   // Div(left, right)
     // ============================
-    // Physical Query Ops
-    Scan,      // Scan(Table, Cols | Null, Predicate | Null)
-    IndexScan, // IndexScan(Index, Predicate | Null)
-    Sort,      // Sort(input, Order)
-    NLJoin,    // NLJoin(left, right, Predicate)
-    SortJoin,  // SortJoin(left, right, Predicate)
-               // TODO: Physical projection operator?
-               // ============================
+    // Physical Operators
+    Sort,       // Sort(input, order)
+    Filter,     // Filter(input, predicate)
+    NLJoin,     // NLJoin(left, right, predicate)
+    HashJoin,   // HashJoin(left, right, predicate)
+    MergeJoin,  // MergeJoin(left, right, predicate)
 }
 
 impl Parseable for QueryOps {
@@ -62,34 +63,55 @@ impl Parseable for QueryOps {
 
         match trimmed {
             "Null" => Ok(QueryOps::Null),
-            "Index" => Ok(QueryOps::Index),
-            "Access" => Ok(QueryOps::Access),
-            "Predicate" => Ok(QueryOps::Predicate),
-            "Eq" => Ok(QueryOps::Eq),
-            "Neq" => Ok(QueryOps::Neq),
-            "Lt" => Ok(QueryOps::Lt),
-            "Gt" => Ok(QueryOps::Gt),
-            "Le" => Ok(QueryOps::Le),
-            "Ge" => Ok(QueryOps::Ge),
-            "And" => Ok(QueryOps::And),
-            "Or" => Ok(QueryOps::Or),
-            "Not" => Ok(QueryOps::Not),
+            // Basic Relational Algebra Operations
             "Select" => Ok(QueryOps::Select),
             "Join" => Ok(QueryOps::Join),
             "Project" => Ok(QueryOps::Project),
-            "Scan" => Ok(QueryOps::Scan),
+            // Basic Access Methods
+            "TableScan" => Ok(QueryOps::TableScan),
             "IndexScan" => Ok(QueryOps::IndexScan),
+            "HashLookup" => Ok(QueryOps::HashLookup),
+            // Predicate Operators
+            "Eq" => Ok(QueryOps::Eq),
+            "Neq" => Ok(QueryOps::Neq),
+            "Gt" => Ok(QueryOps::Gt),
+            "Lt" => Ok(QueryOps::Lt),
+            "Gte" => Ok(QueryOps::Gte),
+            "Lte" => Ok(QueryOps::Lte),
+            "And" => Ok(QueryOps::And),
+            "Or" => Ok(QueryOps::Or),
+            "Not" => Ok(QueryOps::Not),
+            // Arithmetic Operators
+            "Add" => Ok(QueryOps::Add),
+            "Sub" => Ok(QueryOps::Sub),
+            "Mul" => Ok(QueryOps::Mul),
+            "Div" => Ok(QueryOps::Div),
+            // Physical Operators
             "Sort" => Ok(QueryOps::Sort),
+            "Filter" => Ok(QueryOps::Filter),
             "NLJoin" => Ok(QueryOps::NLJoin),
-            "SortJoin" => Ok(QueryOps::SortJoin),
+            "HashJoin" => Ok(QueryOps::HashJoin),
+            "MergeJoin" => Ok(QueryOps::MergeJoin),
             // Boolean constants
             "true" => Ok(QueryOps::ConstBool(true)),
             "false" => Ok(QueryOps::ConstBool(false)),
             _ => {
-                // Try parsing as Col[x] format
-                if trimmed.starts_with("Col[") && trimmed.ends_with(']') {
-                    let inner = &trimmed[4..trimmed.len() - 1]; // Extract content between Col[ and ]
-                    return Ok(QueryOps::Col(inner.to_string()));
+                // Try parsing as Col[A][x,y,z] format for ColumnSet
+                if trimmed.starts_with("Col[") {
+                    if let Some(first_close) = trimmed.find(']') {
+                        let table_name = &trimmed[4..first_close];
+                        let remaining = &trimmed[first_close + 1..];
+                        
+                        if remaining.starts_with('[') && remaining.ends_with(']') {
+                            let columns_str = &remaining[1..remaining.len() - 1];
+                            let columns: Vec<String> = columns_str
+                                .split(',')
+                                .map(|s| s.trim().to_string())
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            return Ok(QueryOps::ColumnSet(table_name.to_string(), columns));
+                        }
+                    }
                 }
 
                 // Try parsing as Table[x] format
@@ -99,7 +121,7 @@ impl Parseable for QueryOps {
                 }
 
                 // Try parsing as integer
-                if let Ok(i) = trimmed.parse::<i32>() {
+                if let Ok(i) = trimmed.parse::<i64>() {
                     return Ok(QueryOps::ConstInt(i));
                 }
 
@@ -123,31 +145,37 @@ impl Display for QueryOps {
             QueryOps::ConstInt(i) => write!(f, "ConstInt({})", i),
             QueryOps::ConstBool(b) => write!(f, "ConstBool({})", b),
             QueryOps::Null => write!(f, "Null"),
-            QueryOps::Col(s) => write!(f, "Col({})", s),
-            QueryOps::Cols(cols) => write!(f, "Cols({:?})", cols),
-            QueryOps::Order(cols) => write!(f, "Order({:?})", cols),
             QueryOps::Table(s) => write!(f, "Table({})", s),
-            QueryOps::TableCol(table, col) => write!(f, "TableCol({}, {})", table, col),
-            QueryOps::Index => write!(f, "Index"),
-            QueryOps::Access => write!(f, "Access"),
-            QueryOps::Predicate => write!(f, "Predicate"),
+            QueryOps::ColumnSet(table, cols) => write!(f, "ColumnSet({}, {:?})", table, cols),
+            // Basic Relational Algebra Operations
+            QueryOps::Select => write!(f, "Select"),
+            QueryOps::Join => write!(f, "Join"),
+            QueryOps::Project => write!(f, "Project"),
+            // Basic Access Methods
+            QueryOps::TableScan => write!(f, "TableScan"),
+            QueryOps::IndexScan => write!(f, "IndexScan"),
+            QueryOps::HashLookup => write!(f, "HashLookup"),
+            // Predicate Operators
             QueryOps::Eq => write!(f, "=="),
             QueryOps::Neq => write!(f, "!="),
             QueryOps::Lt => write!(f, "<"),
             QueryOps::Gt => write!(f, ">"),
-            QueryOps::Le => write!(f, "<="),
-            QueryOps::Ge => write!(f, ">="),
+            QueryOps::Lte => write!(f, "<="),
+            QueryOps::Gte => write!(f, ">="),
             QueryOps::And => write!(f, "And"),
             QueryOps::Or => write!(f, "Or"),
             QueryOps::Not => write!(f, "Not"),
-            QueryOps::Select => write!(f, "Select"),
-            QueryOps::Join => write!(f, "Join"),
-            QueryOps::Project => write!(f, "Project"),
-            QueryOps::Scan => write!(f, "Scan"),
-            QueryOps::IndexScan => write!(f, "IndexScan"),
+            // Arithmetic Operators
+            QueryOps::Add => write!(f, "Add"),
+            QueryOps::Sub => write!(f, "Sub"),
+            QueryOps::Mul => write!(f, "Mul"),
+            QueryOps::Div => write!(f, "Div"),
+            // Physical Operators
             QueryOps::Sort => write!(f, "Sort"),
+            QueryOps::Filter => write!(f, "Filter"),
             QueryOps::NLJoin => write!(f, "NLJoin"),
-            QueryOps::SortJoin => write!(f, "SortJoin"),
+            QueryOps::HashJoin => write!(f, "HashJoin"),
+            QueryOps::MergeJoin => write!(f, "MergeJoin"),
         }
     }
 }
@@ -162,11 +190,8 @@ impl OpLang for QueryOps {
             | QueryOps::ConstInt(_)
             | QueryOps::ConstBool(_)
             | QueryOps::Null
-            | QueryOps::Col(_)
-            | QueryOps::Cols(_)
-            | QueryOps::Order(_)
             | QueryOps::Table(_)
-            | QueryOps::Predicate => 0,
+            | QueryOps::ColumnSet(_, _) => 0,
             // Unary operators
             QueryOps::Not => 1,
             // Binary operators
@@ -174,21 +199,27 @@ impl OpLang for QueryOps {
             | QueryOps::Neq
             | QueryOps::Lt
             | QueryOps::Gt
-            | QueryOps::Le
-            | QueryOps::Ge => 2,
-            QueryOps::And | QueryOps::Or => 2,
-            QueryOps::TableCol(_, _) => 2,
-            // Query operators
-            QueryOps::Index => 2,     // Index(Table, Cols)
-            QueryOps::Access => 3,    // Access(Table | Index, Column, Predicate | Null)
-            QueryOps::Select => 3,    // Select(input, Cols, Predicate)
-            QueryOps::Project => 2,   // Project(input, Cols)
-            QueryOps::Scan => 3,      // Scan(Table, Cols | Null, Predicate | Null)
-            QueryOps::IndexScan => 2, // IndexScan(Index, Predicate | Null)
-            QueryOps::Sort => 2,      // Sort(input, Order)
-            QueryOps::Join => 3,      // Join(left, right, Predicate)
-            QueryOps::NLJoin => 3,    // NLJoin(left, right, Predicate)
-            QueryOps::SortJoin => 3,  // SortJoin(left, right, Predicate)
+            | QueryOps::Lte
+            | QueryOps::Gte
+            | QueryOps::And
+            | QueryOps::Or
+            | QueryOps::Add
+            | QueryOps::Sub
+            | QueryOps::Mul
+            | QueryOps::Div => 2,
+            // Query operators with 2 arguments
+            QueryOps::Select => 2,    // Select(input, predicate)
+            QueryOps::Project => 2,   // Project(input, columns)
+            QueryOps::Sort => 2,      // Sort(input, order)
+            QueryOps::Filter => 2,    // Filter(input, predicate)
+            QueryOps::IndexScan => 2, // IndexScan(table, index)
+            QueryOps::TableScan => 2, // TableScan(table, predicate)
+            QueryOps::HashLookup => 2, // HashLookup(table, key)
+            // Query operators with 3 arguments
+            QueryOps::Join => 3,      // Join(left, right, predicate)
+            QueryOps::NLJoin => 3,    // NLJoin(left, right, predicate)
+            QueryOps::HashJoin => 3,  // HashJoin(left, right, predicate)
+            QueryOps::MergeJoin => 3, // MergeJoin(left, right, predicate)
         }
     }
 }
@@ -262,7 +293,14 @@ impl PartialOrd for PhysicalPropertySet {
 impl From<QueryOps> for PhysicalPropertySet {
     fn from(op: QueryOps) -> Self {
         match op {
-            QueryOps::Col(s) => PhysicalPropertySet::from_cols(s),
+            QueryOps::ColumnSet(_, cols) => {
+                // For now, just use the first column for simplicity
+                if let Some(first_col) = cols.first() {
+                    PhysicalPropertySet::from_cols(first_col.clone())
+                } else {
+                    PhysicalPropertySet::bottom()
+                }
+            }
             _ => PhysicalPropertySet::bottom(),
         }
     }
@@ -300,17 +338,48 @@ mod tests {
 
     #[test]
     fn test_parse_col_and_table() {
-        let result = QueryOps::parse("Col[x]");
+        // Test new ColumnSet syntax: Col[table][col1,col2,col3]
+        let result = QueryOps::parse("Col[users][id,name,email]");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), QueryOps::Col("x".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            QueryOps::ColumnSet(
+                "users".to_string(),
+                vec!["id".to_string(), "name".to_string(), "email".to_string()]
+            )
+        );
 
+        // Test Table syntax
         let result = QueryOps::parse("Table[users]");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), QueryOps::Table("users".to_string()));
 
-        let result = QueryOps::parse("Col[some_column]");
+        // Test single column ColumnSet
+        let result = QueryOps::parse("Col[products][name]");
         assert!(result.is_ok());
-        assert_eq!(result.unwrap(), QueryOps::Col("some_column".to_string()));
+        assert_eq!(
+            result.unwrap(),
+            QueryOps::ColumnSet("products".to_string(), vec!["name".to_string()])
+        );
+
+        // Test empty column set
+        let result = QueryOps::parse("Col[table][]");
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            QueryOps::ColumnSet("table".to_string(), vec![])
+        );
+
+        // Test columns with whitespace
+        let result = QueryOps::parse("Col[users][ id , name , email ]");
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            QueryOps::ColumnSet(
+                "users".to_string(),
+                vec!["id".to_string(), "name".to_string(), "email".to_string()]
+            )
+        );
     }
 
     #[test]
@@ -396,42 +465,43 @@ mod tests {
 
     #[test]
     fn test_parse_expr_with_col_table() {
-        let result = Parser::<QueryOps>::parse_expr("Access(Table[users], Col[id])");
+        let result = Parser::<QueryOps>::parse_expr("TableScan(Table[users], Null)");
         assert!(result.is_ok());
         let expr = result.unwrap();
-        assert_eq!(*expr.op(), QueryOps::Access);
+        assert_eq!(*expr.op(), QueryOps::TableScan);
         assert_eq!(expr.args().len(), 2);
         assert_eq!(*expr.args()[0].op(), QueryOps::Table("users".to_string()));
-        assert_eq!(*expr.args()[1].op(), QueryOps::Col("id".to_string()));
+        assert_eq!(*expr.args()[1].op(), QueryOps::Null);
     }
 
     #[test]
     fn test_parse_complex_expressions_with_square_brackets() {
-        // Test a more complex expression with nested Col[] and Table[]
+        // Test a more complex expression with nested ColumnSet and Table
         let result = Parser::<QueryOps>::parse_expr(
-            "Select(Scan(Table[employees]), Eq(Col[department], engineering))",
+            "Select(TableScan(Table[employees], Null), Eq(Col[employees][department], engineering))",
         );
         assert!(result.is_ok());
         let expr = result.unwrap();
         assert_eq!(*expr.op(), QueryOps::Select);
         assert_eq!(expr.args().len(), 2);
 
-        // First argument: Scan(Table[employees])
+        // First argument: TableScan(Table[employees], Null)
         let scan_expr = &expr.args()[0];
-        assert_eq!(*scan_expr.op(), QueryOps::Scan);
-        assert_eq!(scan_expr.args().len(), 1);
+        assert_eq!(*scan_expr.op(), QueryOps::TableScan);
+        assert_eq!(scan_expr.args().len(), 2);
         assert_eq!(
             *scan_expr.args()[0].op(),
             QueryOps::Table("employees".to_string())
         );
+        assert_eq!(*scan_expr.args()[1].op(), QueryOps::Null);
 
-        // Second argument: Eq(Col[department], engineering)
+        // Second argument: Eq(Col[employees][department], engineering)
         let eq_expr = &expr.args()[1];
         assert_eq!(*eq_expr.op(), QueryOps::Eq);
         assert_eq!(eq_expr.args().len(), 2);
         assert_eq!(
             *eq_expr.args()[0].op(),
-            QueryOps::Col("department".to_string())
+            QueryOps::ColumnSet("employees".to_string(), vec!["department".to_string()])
         );
         assert_eq!(
             *eq_expr.args()[1].op(),
@@ -442,13 +512,13 @@ mod tests {
     #[test]
     fn test_pattern_parsing_with_square_brackets() {
         // Test pattern parsing with variables in a simpler form
-        let result = Parser::<QueryOps>::parse_pattern("Access(?table_expr, ?column_expr)");
+        let result = Parser::<QueryOps>::parse_pattern("TableScan(?table_expr, ?predicate)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Check top-level operator
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Access),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::TableScan),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
@@ -460,23 +530,23 @@ mod tests {
             OpOrVar::Op(_) => panic!("Expected variable, got operator"),
         }
 
-        // Second argument: ?column_expr - should be parsed as a variable
+        // Second argument: ?predicate - should be parsed as a variable
         match pattern.args()[1].op() {
-            OpOrVar::Var(var) => assert_eq!(var, "column_expr"),
+            OpOrVar::Var(var) => assert_eq!(var, "predicate"),
             OpOrVar::Op(_) => panic!("Expected variable, got operator"),
         }
     }
 
     #[test]
     fn test_pattern_parsing_with_concrete_square_brackets() {
-        // Test pattern parsing with concrete Table[] and Col[] mixed with variables
-        let result = Parser::<QueryOps>::parse_pattern("Access(Table[users], ?column_var)");
+        // Test pattern parsing with concrete Table[] mixed with variables
+        let result = Parser::<QueryOps>::parse_pattern("TableScan(Table[users], ?predicate)");
         assert!(result.is_ok());
         let pattern = result.unwrap();
 
         // Check top-level operator
         match pattern.op() {
-            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::Access),
+            OpOrVar::Op(op) => assert_eq!(*op, QueryOps::TableScan),
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
@@ -488,9 +558,9 @@ mod tests {
             OpOrVar::Var(_) => panic!("Expected operator, got variable"),
         }
 
-        // Second argument: ?column_var - should be parsed as a variable
+        // Second argument: ?predicate - should be parsed as a variable
         match pattern.args()[1].op() {
-            OpOrVar::Var(var) => assert_eq!(var, "column_var"),
+            OpOrVar::Var(var) => assert_eq!(var, "predicate"),
             OpOrVar::Op(_) => panic!("Expected variable, got operator"),
         }
     }

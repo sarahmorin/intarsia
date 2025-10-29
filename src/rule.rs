@@ -291,26 +291,26 @@ mod tests {
     #[test]
     fn test_rule_macro_with_database_ops() {
         let rule = mk_rule!(
-            "scan_to_index_scan",
-            "Scan(Table[users])",
-            "IndexScan(Table[users], Col[id])"
+            "tablescan_to_index_scan",
+            "TableScan(Table[users], ?pred)",
+            "IndexScan(Table[users], Col[users][id])"
         );
 
-        assert_eq!(rule.name, "scan_to_index_scan");
+        assert_eq!(rule.name, "tablescan_to_index_scan");
 
-        // Check pattern: Scan(Table[users])
+        // Check pattern: TableScan(Table[users], ?pred)
         match rule.pattern.op() {
-            OpOrVar::Op(QueryOps::Scan) => {}
-            _ => panic!("Expected Scan operation in pattern"),
+            OpOrVar::Op(QueryOps::TableScan) => {}
+            _ => panic!("Expected TableScan operation in pattern"),
         }
-        assert_eq!(rule.pattern.args().len(), 1);
+        assert_eq!(rule.pattern.args().len(), 2);
 
         match rule.pattern.args()[0].op() {
             OpOrVar::Op(QueryOps::Table(name)) => assert_eq!(name, "users"),
             _ => panic!("Expected Table[users]"),
         }
 
-        // Check replacement: IndexScan(Table[users], Col[id])
+        // Check replacement: IndexScan(Table[users], Col[users][id])
         match rule.replacement.op() {
             OpOrVar::Op(QueryOps::IndexScan) => {}
             _ => panic!("Expected IndexScan operation in replacement"),
@@ -323,8 +323,11 @@ mod tests {
         }
 
         match rule.replacement.args()[1].op() {
-            OpOrVar::Op(QueryOps::Col(name)) => assert_eq!(name, "id"),
-            _ => panic!("Expected Col[id] in replacement"),
+            OpOrVar::Op(QueryOps::ColumnSet(table, cols)) => {
+                assert_eq!(table, "users");
+                assert_eq!(cols, &vec!["id".to_string()]);
+            }
+            _ => panic!("Expected ColumnSet[users][id] in replacement"),
         }
     }
 
@@ -671,7 +674,7 @@ mod tests {
 
         // Check pattern: Add(42, 0)
         match rule.pattern.op() {
-            OpOrVar::Op(QueryOps::ConstStr(op)) => assert_eq!(op, "Add"),
+            OpOrVar::Op(QueryOps::Add) => {}
             _ => panic!("Expected Add operation in pattern"),
         }
 
