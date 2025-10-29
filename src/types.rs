@@ -315,6 +315,7 @@ where
 {
     op: L,
     args: Vec<MulteId>,
+    // QUESTION: Do we need to store properties here as well?
 }
 
 impl<L> Term<L>
@@ -373,10 +374,10 @@ where
 ///
 /// It is important to note a few things. The functions...
 /// - must be deterministic. Given the same input, they must always produce the same output.
-/// - should respect the coarsest equivalence relation. If two expressions are logically equivalent, they should map to the same property set.
+/// - should respect the coarsest equivalence relation. If two expressions are logically equivalent, they should function equivalently as arguments that derive properties.
 /// - should be efficient to compute, as they will be called frequently during e-graph operations.
 /// - should be well-defined for all valid expressions and patterns in the language.
-/// - should NOT be recursive or depend on one another. Each function should be self-contained and operate solely on its input.
+/// - should NOT be recursive or depend on one another. Each function should be self-contained and operate solely on its input. QUESTION: Is this true??
 // QUESTION: How do I enforce some/all of these ^?? Is there a Rust-y way to do it? Is just hopes and dreams?
 pub struct PropInfo<L, P>
 where
