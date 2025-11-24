@@ -1,4 +1,4 @@
-# Notes
+# MulteOpt (until I come up with a better name) Notes
 
 For now, this readme just contains my dev notes on the repo. In the future I'll put these elsewhere and make a pretty readme that explains the crate.
 
@@ -42,6 +42,94 @@ In meeting on 8/27 we highlighted that I was using too many traits and generics.
     - Do we also need something that tells us what argument indices feed into property set computation? could be useful during search/replace
   - `Parseable` trait -> If you implement this single function trait on your `OpLang`, I can build a parser (passable right now, but could be improved) that allows you to use the rules macro.
     - [ ] Should this just be baked into the `OpLang` trait? Maybe, but if you don't want to write a parser there's also nothing stopping you from writing rules directly in rust and forgoing the macro
+
+## Enode Insertions wrt Properties
+
+In the mutle-graph we cannot use the same method of enode insertion as the traditional e-graph; we need to handle properties. 
+
+#### Traditional Insertion of Expression
+```python
+insert(expr) -> id:
+  arg_ids = [
+    for arg in expr:
+      arg_id = insert(arg)
+      arg_id
+  ]
+  term = Term(expr.op, [arg_ids])
+  canonicalize(term)
+  if hashcons[term] = id:
+    return id
+  else:
+    new_id = unionfind.add_set()
+    enode = ENode(new_id, term)
+    eclass = EClass(new_id)
+    eclass.add_enode(enode)
+    enode_map.insert(enode)
+    eclass_map.insert(eclass)
+    hashcons[term] = new_id
+    for child in term.args:
+      eclass_map[child].add_parent(new_id)
+    return new_id
+``` 
+
+#### Adding an expression in the mutle-graph
+```python
+insert(expr) -> id:
+  arg_ids = [
+    for idx, arg in expr:
+      arg_id = insert(arg)
+      # Get the property requirements and convert to id
+      prop_req = get_arg_req_props(expr, idx)
+      prop_req_id = prop_map.get_or_insert(prop_req)
+      # Return multe id
+      (arg_id, prop_req_id)
+  ]
+  term = Term(expr.op, [arg_ids])
+  canonicalize(term)
+  if hashcons[term] = id:
+    return id
+  else:
+    new_id = unionfind.add_set()
+    # Compute the output properties of the expression
+    props = get_output_props(expr)
+    props_id = prop_map.get_or_insert(props)
+    # Include properties in the enode metadata
+    enode = ENode(new_id, term, props)
+    eclass = EClass(new_id)
+    eclass.add_enode(enode)
+    enode_map.insert(enode)
+    eclass_map.insert(eclass)
+    hashcons[term] = new_id
+    for child in term.args:
+      eclass_map[child].add_parent(new_id)
+    return new_id
+```
+
+#### Handling Properties when inserting pattern matches
+
+Given a pattern and substitution we need to compute the property requirements of the pattern's argument. We typically follow the same recursive insertion model with one change: ***if an argument is a variable, we simply use the eclass Id from the substitution map rather than doing the recursive call.***
+
+In the mutlegraph, we need to handle the case where one of the property-deriving arguments is a variable in the pattern.
+If the pattern has no variables, or none of the property-deriving arguments at any level are variables, then we can call the get property functions above and treat the pattern exactly like an expression because those functions will not touch a variable. 
+Thus, we can proceed with the usual algorithm described above.
+Now, since the property functions respect the logical equivalence, anytime a property-deriving argument is a variable, we can simply substitute the canonical element of that eclass.
+The question now is when to do this substitution? I think the issue boils down to how much information the property functions require. 
+Since patterns/expressions/terms are recursive, the prop functions will "recurse" through the expr to get the property deriving arguments. 
+Suppose this recursion is unbounded, i.e. the prop function for expresions with operator `g` not only depends on argument 0, but also argument 0's argument 0, e.g. `g(f(a(...)))` and `g(f(b(...)))` have different properties where `f(a(...))` and `f(b(...))` are not equivalent. Now, the property-deriving arguments are no longer a list of indices, but a recursive structure itself.
+Keep in mind, this still does not mean the property functions are recursive, they cannot depend on themselves, they just might recurse through an expression (without computing any properties) to compute the property set from that argument. 
+The most sensible starting point is to say 
+
+
+
+Options:
+1. Introduce new get_props function that take in pattern, substitutions, and the mutlegraph and do the necessary substitutions here
+   - requires another set of property deriving functions (potential inconsistency)
+   - might do redundant work
+   - supports property functions that require reading multiple levels of an argument (for example, distinguishes between f(a) and f(b))
+2. Before the first call to insert match, recurse through the entire pattern and perform the necessary substitutions.
+  - pattern is stable during insert match, we only do substitutions once
+  - if prop functions recurse through multiple pattern/expression levels, we need to carry these argument indices down somehow 
+3. 
 
 ## Property Sets and Correctness Requirements
 
