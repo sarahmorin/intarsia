@@ -4,6 +4,8 @@ use std::{
     hash::Hash,
 };
 
+use crate::property::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Id(pub usize);
 
@@ -135,24 +137,6 @@ macro_rules! impl_oplang_default {
     };
 }
 
-/// Property trait for properties of operators and terms.
-/// A PropertySet defines the properties that can be associated with an expression in the language.
-/// These properties can be used to enforce constraints on the expressions, such as requiring certain types of input.
-/// A property set could be a simple bool flag, a bitmap, or a more complex structure.
-/// It need only implement the `PartialOrd` trait and provide a bottom element.
-/// Note: Implement `PartialOrd` for your property set. Deriving the trait is likely not the behavior you need here.
-pub trait PropertySet: Clone + Debug + PartialEq + Eq + PartialOrd + Display + Hash {
-    /// Returns the "no properties" bottom element of the property set.
-    fn bottom() -> Self;
-
-    /// Returns a vector of `n` bottom elements of the property set.
-    fn n_bottoms(n: usize) -> Vec<Self>
-    where
-        Self: Sized,
-    {
-        vec![Self::bottom(); n]
-    }
-}
 
 /// Generic Recursive Expression structure.
 /// An expression is fully defined, i.e. it does not contain any unbound variables.
@@ -446,12 +430,13 @@ where
 }
 
 /// Cost functions are used to guide extraction from the e-graph.
-pub trait CostFunction<L>
+pub trait CostFunction<L, P, D>
 where
     L: OpLang,
+    P: PropertySet,
+    D: PartialOrd,
 {
-    // TODO: Define the cost function trait
-    // QUESTION: Should the cost function depend on properties as well?
+    fn cost(&self, expr: &Expr<L>, prop_info: &PropInfo<L, P>) -> D;
 }
 
 // =============== Here be monsters ================

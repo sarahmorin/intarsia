@@ -1,4 +1,5 @@
-use crate::types::{PropSetId, PropertySet};
+use crate::types::PropSetId;
+use crate::property::PropertySet;
 /// PropertySet map is a BiMap struct that maps between property sets and unique IDs.
 /// This allows us to efficiently reference and manage properties associated with expressions in the e-graph.
 use bimap::BiMap;
@@ -82,6 +83,18 @@ mod tests {
             TestPropertySet {
                 value: PropSetId(0),
             }
+        }
+
+        fn meet(&self, other: &Self) -> Self {
+            TestPropertySet {
+                value: PropSetId(std::cmp::min(self.value.as_usize(), other.value.as_usize())),
+            }
+        }
+
+        fn join(&self, other: &Self) -> Option<Self> {
+            Some(TestPropertySet {
+                value: PropSetId(std::cmp::max(self.value.as_usize(), other.value.as_usize())),
+            })
         }
     }
 

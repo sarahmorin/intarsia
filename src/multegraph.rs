@@ -4,6 +4,7 @@ use crate::unionfind::UnionFind;
 use indexmap::IndexMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
+use crate::property::PropertySet;
 
 /// ENode.
 /// TODO: Add docstring.
@@ -584,7 +585,7 @@ where
 
     /// Extract an expression from the EGraph.
     /// Given an Id, find an expression that corresponds to the EClass of that Id.
-    pub fn extract(&self, _id: Id, _cost_func: &dyn CostFunction<L>) -> Expr<L> {
+    pub fn extract(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
         todo!("Implement extraction of expression from EGraph");
     }
 }
@@ -632,23 +633,31 @@ mod tests {
 
     // Test properties for testing
     #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
-    struct TestProp(pub lattices::Max<usize>);
+    struct TestProp(u64);
 
     impl Hash for TestProp {
         fn hash<H: Hasher>(&self, state: &mut H) {
-            self.0.as_reveal_ref().hash(state);
+            self.0.hash(state);
         }
     }
 
     impl Display for TestProp {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "Max({})", self.0.as_reveal_ref())
+            write!(f, "{}", self.0)
         }
     }
 
     impl PropertySet for TestProp {
         fn bottom() -> Self {
-            TestProp(lattices::Max::from(0 as usize))
+            TestProp(0)
+        }
+
+        fn meet(&self, other: &Self) -> Self {
+            TestProp(std::cmp::min(self.0, other.0))
+        }
+
+        fn join(&self, other: &Self) -> Option<Self> {
+            Some(TestProp(std::cmp::max(self.0, other.0)))
         }
     }
 

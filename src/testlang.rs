@@ -1,6 +1,7 @@
 use crate::impl_oplang_default;
 use crate::parser::{Parseable, Parser};
 use crate::types::*;
+use crate::property::{PropertySet};
 use bitmaps::Bitmap;
 /// A stand in language for testing purposes.
 use std::fmt::{Debug, Display};
@@ -281,6 +282,18 @@ impl PropertySet for PhysicalPropertySet {
         Self {
             sort: Bitmap::new(),
         }
+    }
+
+    fn meet(&self, other: &Self) -> Self {
+        let mut new_sort = Bitmap::new();
+        for i in 0..3 {
+            new_sort.set(i, self.sort.get(i) && other.sort.get(i));
+        }
+        Self { sort: new_sort }
+    }
+
+    fn join(&self, other: &Self) -> Option<Self> {
+        None // Join is not defined for this simple property set
     }
 }
 
