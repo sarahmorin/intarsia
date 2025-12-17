@@ -5,8 +5,9 @@ mod rule;
 mod testlang;
 mod types;
 mod unionfind;
-
+mod property;
 use testlang::QueryOps;
+mod costlang;
 
 fn main() {
     // Create a ruleset
