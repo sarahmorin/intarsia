@@ -4,83 +4,8 @@ use std::{
     hash::Hash,
 };
 
-use crate::property::*;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Id(pub usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct PropSetId(pub usize);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct MulteId(pub Id, pub PropSetId);
-
-impl MulteId {
-    /// Returns the logical Id.
-    pub fn logical_id(&self) -> Id {
-        self.0
-    }
-
-    /// Returns the property set Id.
-    pub fn propset_id(&self) -> PropSetId {
-        self.1
-    }
-}
-
-impl Display for Id {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Id({})", self.0)
-    }
-}
-
-impl Display for PropSetId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PropSetId({})", self.0)
-    }
-}
-
-impl Display for MulteId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "MulteId({}, {})", self.0, self.1)
-    }
-}
-
-impl Id {
-    pub fn as_usize(&self) -> usize {
-        self.0
-    }
-}
-
-impl PropSetId {
-    pub fn as_usize(&self) -> usize {
-        self.0
-    }
-}
-
-// Additional From implementations for convenience
-impl From<usize> for PropSetId {
-    fn from(id: usize) -> Self {
-        PropSetId(id)
-    }
-}
-
-impl From<MulteId> for Id {
-    fn from(multe_id: MulteId) -> Self {
-        multe_id.0
-    }
-}
-
-impl From<usize> for Id {
-    fn from(id: usize) -> Self {
-        Id(id)
-    }
-}
-
-impl From<Id> for MulteId {
-    fn from(id: Id) -> Self {
-        MulteId(id, PropSetId(0)) // Default propset id to 0
-    }
-}
+/// Type to represent EClass and ENode identifiers.
+pub type Id = usize;
 
 /// Type to represent a variable in the language.
 pub type Var = String;
@@ -137,7 +62,6 @@ macro_rules! impl_oplang_default {
     };
 }
 
-
 /// Generic Recursive Expression structure.
 /// An expression is fully defined, i.e. it does not contain any unbound variables.
 /// Since an expression is fully defined, we can evaluate its properties.
@@ -152,8 +76,8 @@ where
     op: L,
     /// Arguments as a vector of sub-expressions
     args: Vec<Expr<L>>,
-    /// PropertySetId of the expression
-    propset: Option<PropSetId>,
+    // PropertySetId of the expression
+    // propset: Option<PropSetId>,
 }
 
 impl<L> Expr<L>
@@ -164,15 +88,15 @@ where
     pub fn new(op: L, args: Vec<Expr<L>>) -> Self {
         Self {
             op,
-            propset: None,
+            // propset: None,
             args,
         }
     }
 
     /// Sets the PropertySetId of the expression.
-    pub fn set_propset(&mut self, propset: PropSetId) {
-        self.propset = Some(propset);
-    }
+    // pub fn set_propset(&mut self, propset: PropSetId) {
+    //     self.propset = Some(propset);
+    // }
 
     /// Returns the operator of the expression.
     pub fn op(&self) -> &L {
@@ -185,9 +109,9 @@ where
     }
 
     /// Returns PropertySet Id of the expression.
-    pub fn propset(&self) -> &Option<PropSetId> {
-        &self.propset
-    }
+    // pub fn propset(&self) -> &Option<PropSetId> {
+    //     &self.propset
+    // }
 
     /// Returns arity of the expression.
     pub fn arity(&self) -> usize {
@@ -206,8 +130,10 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Expr(op: {}, propset: {:?}, args: {:?})",
-            self.op, self.propset, self.args
+            "Expr(op: {}, args: {:?}, propset: {:?})",
+            self.op,
+            self.args,
+            self.propset()
         )
     }
 }
@@ -298,8 +224,7 @@ where
     L: OpLang,
 {
     op: L,
-    args: Vec<MulteId>,
-    // QUESTION: Do we need to store properties here as well?
+    args: Vec<Id>,
 }
 
 impl<L> Term<L>
@@ -307,7 +232,7 @@ where
     L: OpLang,
 {
     /// Creates a new term with the given operator and arguments.
-    pub fn new(op: L, args: Vec<MulteId>) -> Self {
+    pub fn new(op: L, args: Vec<Id>) -> Self {
         Self { op, args }
     }
 
@@ -317,7 +242,7 @@ where
     }
 
     /// Returns the arguments of the term.
-    pub fn args(&self) -> &Vec<MulteId> {
+    pub fn args(&self) -> &Vec<Id> {
         &self.args
     }
 
@@ -339,190 +264,13 @@ where
             OpOrVar::Var(_) => true, // If the pattern is a variable, it matches any term
         }
     }
-
-    /// Returns true if the term satisfies a property set.
-    /// Note: This does not check properties or arguments.
-    // FIXME: this needs a real solution
-    pub fn satisfies_property<P>(&self, _props: &P) -> bool
-    where
-        P: PropertySet,
-    {
-        true
-    }
-}
-
-/// The PropInfo struct defines a relationship between an OpLang and a PropertySet.
-/// It contains functions that map expressions and patterns to property sets.
-/// This allows us to derive the properties of an expression based on its structure and the properties of its arguments.
-/// This is crucial for maintaining and enforcing property-based equivalence relations in the multe-graph.
-///
-/// It is important to note a few things. The functions...
-/// - must be deterministic. Given the same input, they must always produce the same output.
-/// - should respect the coarsest equivalence relation. If two expressions are logically equivalent, they should function equivalently as arguments that derive properties.
-/// - should be efficient to compute, as they will be called frequently during e-graph operations.
-/// - should be well-defined for all valid expressions and patterns in the language.
-/// - should NOT be recursive or depend on one another. Each function should be self-contained and operate solely on its input. QUESTION: Is this true??
-// QUESTION: How do I enforce some/all of these ^?? Is there a Rust-y way to do it? Is just hopes and dreams?
-pub struct PropInfo<L, P>
-where
-    L: OpLang,
-    P: PropertySet,
-{
-    /// Function to map from an operator to indices of its property-deriving arguments.
-    pub op_prop_args: fn(&L) -> Vec<usize>,
-    /// Function to map from an operator to the indices of its property-dependent arguments.
-    pub op_dep_args: fn(&L) -> Vec<usize>,
-    // QUESTION: Do we need both of these?
-    // TODO: At some point, do a check that prop args and dep args are disjoint, within arity bounds, and cover all arguments
-    /// Function to get the property set of the expression.
-    pub output_props: fn(&Expr<L>) -> P,
-    /// Function to get the property srt requirements on argument at index idx.
-    pub arg_req_props: fn(&Expr<L>, usize) -> P,
-    // QUESTION: Should these functions taken an operator and a vec of property-deriving expressions instead?
-    //   - This would enforce that the functions only depend on the operator and the relevant arguments
-    //   - However, it would also require us to extract the relevant arguments before calling the function
-}
-
-impl<L, P> PropInfo<L, P>
-where
-    L: OpLang,
-    P: PropertySet,
-{
-    /// Creates a new PropInfo instance with the given functions.
-    pub fn new(
-        op_prop_args: fn(&L) -> Vec<usize>,
-        op_dep_args: fn(&L) -> Vec<usize>,
-        output_props: fn(&Expr<L>) -> P,
-        arg_req_props: fn(&Expr<L>, usize) -> P,
-    ) -> Self {
-        Self {
-            op_prop_args,
-            op_dep_args,
-            output_props,
-            arg_req_props,
-        }
-    }
-
-    pub fn default() -> Self {
-        Self {
-            op_prop_args: |_| vec![],
-            op_dep_args: |_| vec![],
-            output_props: |_| P::bottom(),
-            arg_req_props: |_, _| P::bottom(),
-        }
-    }
-
-    pub fn op_prop_args(&self, op: &L) -> Vec<usize> {
-        (self.op_prop_args)(op)
-    }
-
-    pub fn op_dep_args(&self, op: &L) -> Vec<usize> {
-        (self.op_dep_args)(op)
-    }
-
-    pub fn output_props(&self, expr: &Expr<L>) -> P {
-        (self.output_props)(expr)
-    }
-
-    pub fn arg_req_props(&self, expr: &Expr<L>, idx: usize) -> P {
-        (self.arg_req_props)(expr, idx)
-    }
 }
 
 /// Cost functions are used to guide extraction from the e-graph.
-pub trait CostFunction<L, P, D>
+pub trait CostFunction<L, D>
 where
     L: OpLang,
-    P: PropertySet,
     D: PartialOrd,
 {
-    fn cost(&self, expr: &Expr<L>, prop_info: &PropInfo<L, P>) -> D;
+    fn cost(&self, expr: &Expr<L>) -> D;
 }
-
-// =============== Here be monsters ================
-// /// Information about an operator in the language.
-// /// Contains its arity, output properties, and input properties indexed by argument index
-// #[derive(Debug, Clone, PartialEq, Eq)]
-// pub struct PropInfo<P>
-// where
-//     P: PropertySet,
-// {
-//     /// The arity of the operator.
-//     pub arity: usize,
-//     /// Properties of operator output
-//     pub output_props: P,
-//     /// Properties of operator input indexed by argument index.
-//     /// If an argument does not have a property requirement,
-//     /// its value in the vec should satisfy `P.is_bot()`, i.e., the bottom element of the lattice.
-//     pub input_props: Vec<P>,
-// }
-
-// impl<P> PropInfo<P>
-// where
-//     P: PropertySet,
-// {
-//     /// Creates a new PropInfo instance with the given operator, arity, output properties, and input properties.
-//     pub fn new(arity: usize, output_props: P, input_props: Vec<P>) -> Self {
-//         Self {
-//             arity,
-//             output_props,
-//             input_props,
-//         }
-//     }
-
-//     /// Returns a new PropInfo instance with the given arity and all properties set to bottom.
-//     pub fn default(arity: usize) -> Self {
-//         Self {
-//             arity,
-//             output_props: P::bottom(),
-//             input_props: P::n_bottoms(arity),
-//         }
-//     }
-
-//     /// Returns arity
-//     pub fn arity(&self) -> usize {
-//         self.arity
-//     }
-
-//     /// Returns output properties
-//     pub fn output_props(&self) -> &P {
-//         &self.output_props
-//     }
-
-//     /// Returns input properties at argument index
-//     pub fn input_props(&self, index: usize) -> &P {
-//         self.input_props.get(index).unwrap_or_else(|| {
-//             panic!(
-//                 "Index {} out of bounds for input_props with length {}",
-//                 index,
-//                 self.input_props.len()
-//             )
-//         })
-//     }
-// }
-
-// impl<P> Default for PropInfo<P>
-// where
-//     P: PropertySet,
-// {
-//     fn default() -> Self {
-//         Self {
-//             arity: 0,
-//             output_props: P::bottom(),
-//             input_props: vec![],
-//         }
-//     }
-// }
-
-// impl<P> Display for PropInfo<P>
-// where
-//     P: PropertySet,
-// {
-//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-//         write!(
-//             f,
-//             "PropInfo(arity: {}, output_props: {}, input_props: {:?})",
-//             self.arity, self.output_props, self.input_props
-//         )
-//     }
-// }

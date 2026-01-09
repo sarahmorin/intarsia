@@ -1,13 +1,13 @@
 // mod multegraph;
 mod parser;
-mod property;
-mod propertymap;
+// mod property;
+// mod propertymap;
 mod rule;
 mod testlang;
 mod types;
 mod unionfind;
 use testlang::QueryOps;
-mod costlang;
+// mod costlang;
 mod egg;
 mod egraph;
 

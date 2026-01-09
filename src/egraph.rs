@@ -6,7 +6,7 @@ use std::fmt::{Debug, Display};
 use std::hash::Hash;
 
 /// ENode.
-/// TODO: Add docstring.
+/// [ ]: Add docstring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ENode<L>
 where
@@ -16,8 +16,6 @@ where
     pub id: Id,
     /// The term associated with this ENode.
     pub term: Term<L>,
-    // TODO: Potential property sat optimizations:
-    //  - A bitmap indicating which properties are satisfied by this ENode
 }
 
 impl<L> ENode<L>
@@ -41,9 +39,7 @@ where
 }
 
 /// EClass
-///
-/// In the MulteGraph, an EClass is a collection of ENodes that are equivalent under the operator equivalence relation.
-/// The "EClasses" of the property equivalence relation are virtual subsets of these EClasses.
+/// [ ]: Add docstring.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EClass {
     /// Unique identifier for the EClass.
@@ -101,7 +97,7 @@ impl EClass {
 // will be used for debugging and performance analysis
 
 /// EGraph
-/// TODO: Add docstring.
+/// [ ]: Add docstring.
 pub struct EGraph<L>
 where
     L: OpLang,
@@ -136,7 +132,7 @@ where
 
     /// Get list of unique identifiers for all EClasses in the EGraph.
     pub fn eclass_ids(&self) -> Vec<Id> {
-        self.uf.roots().iter().map(|id| Id(*id)).collect()
+        self.uf.roots()
     }
 
     /// Get EClass by its unique identifier.
@@ -188,33 +184,29 @@ where
     /// Find the canonical representative of the e-class containing `id`.
     /// No path compression is performed. We use this when we don't want to mutate the UnionFind for debugging.
     pub fn find(&self, id: Id) -> Id {
-        self.uf.find(id.as_usize()).into()
+        self.uf.find(id)
     }
 
     /// Find the canonical representative of the e-class containing `id` with path compression.
     pub fn find_compress(&mut self, id: Id) -> Id {
-        self.uf.find_compress(id.as_usize()).into()
+        self.uf.find_compress(id)
     }
 
     /// Union two logical EClasses.
     pub fn union(&mut self, id1: Id, id2: Id) -> Id {
-        self.uf.union(id1.as_usize(), id2.as_usize()).into()
+        self.uf.union(id1, id2)
     }
 
     /// Add a new set to the UnionFind and return its Id.
     pub fn add_set(&mut self) -> Id {
-        self.uf.add_set().into()
+        self.uf.add_set()
     }
 
     /// Canonicalize a term by finding the canonical representative of its argument EClasses.
     /// Recursively finds the representative of the EClass for each term in the argument.
     pub fn canonicalize(&self, term: &Term<L>) -> Term<L> {
         let op = term.op().clone();
-        let args = term
-            .args()
-            .iter()
-            .map(|arg| MulteId(self.find(arg.logical_id()), arg.propset_id()))
-            .collect();
+        let args = term.args().iter().map(|arg| self.find(*arg)).collect();
         Term::new(op, args)
     }
 
@@ -222,14 +214,7 @@ where
     /// Recursively converts the Expr to a Term, canonicalizes it, and adds it to the EGraph.
     pub fn add_expr(&mut self, expr: &Expr<L>) -> Id {
         // Recursively convert expression to a term
-        let arg_ids: Vec<MulteId> = expr
-            .args()
-            .iter()
-            .map(|arg| {
-                let arg_id = self.add_expr(arg);
-                MulteId(arg_id, PropSetId(0)) // FIXME: I made terms use mutleids
-            })
-            .collect();
+        let arg_ids: Vec<Id> = expr.args().iter().map(|arg| self.add_expr(arg)).collect();
 
         // Get properties of the operator
         let term = Term::new(expr.op().clone(), arg_ids);
@@ -250,9 +235,7 @@ where
             new_eclass.add_enode(new_id);
             self.eclasses.insert(new_id, new_eclass);
             for child in canonical_term.args() {
-                self.get_eclass_mut(&child.logical_id())
-                    .unwrap()
-                    .add_parent(new_id);
+                self.get_eclass_mut(&child).unwrap().add_parent(new_id);
             }
             new_id
         }
@@ -267,7 +250,7 @@ where
                     .term
                     .args()
                     .iter()
-                    .map(|arg| self.get_canonical_expr(&arg.logical_id()))
+                    .map(|arg| self.get_canonical_expr(&arg))
                     .collect(),
             );
         }
@@ -308,13 +291,10 @@ where
                 }
             }
             OpOrVar::Op(op) => {
-                let arg_ids: Vec<MulteId> = pattern
+                let arg_ids: Vec<Id> = pattern
                     .args()
                     .iter()
-                    .map(|arg| {
-                        let arg_id = self.add_enode_match(arg, subst);
-                        MulteId(arg_id, PropSetId(0))
-                    })
+                    .map(|arg| self.add_enode_match(arg, subst))
                     .collect();
 
                 // Get properties of the operator
@@ -336,9 +316,7 @@ where
                     new_eclass.add_enode(new_id);
                     self.eclasses.insert(new_id, new_eclass);
                     for child in canonical_term.args() {
-                        self.get_eclass_mut(&child.logical_id())
-                            .unwrap()
-                            .add_parent(new_id);
+                        self.get_eclass_mut(&child).unwrap().add_parent(new_id);
                     }
                     new_id
                 }
@@ -351,14 +329,10 @@ where
     pub fn ematch(
         &self,
         pattern: &Pattern<L>,
-        eclass: MulteId,
-        subst: &Subst<Var, MulteId>,
-    ) -> Vec<Subst<Var, MulteId>> {
-        fn insert_subst(
-            var: &Var,
-            eclass: MulteId,
-            subst: &Subst<Var, MulteId>,
-        ) -> Option<Subst<Var, MulteId>> {
+        eclass: Id,
+        subst: &Subst<Var, Id>,
+    ) -> Vec<Subst<Var, Id>> {
+        fn insert_subst(var: &Var, eclass: Id, subst: &Subst<Var, Id>) -> Option<Subst<Var, Id>> {
             let mut subst_clone = subst.clone();
             if let Some(id) = subst_clone.insert(var.clone(), eclass) {
                 // If the variable was already in the substitution map, check if it matches the eclass
@@ -382,10 +356,10 @@ where
             OpOrVar::Op(_expr) => {
                 // If expression is a constant, try to find an ENode in the class that matches
                 if pattern.is_terminal() {
-                    for node in self.get_enodes_in_eclass(&eclass.logical_id()) {
+                    for node in self.get_enodes_in_eclass(&eclass) {
                         if node.term.matches_pattern(pattern) {
                             let mut subst_clone = subst.clone();
-                            subst_clone.insert(String::from(""), MulteId(Id(0), PropSetId(0))); // HACK
+                            subst_clone.insert(String::from(""), eclass); // HACK
                             res.push(subst_clone);
                             return res;
                         }
@@ -395,7 +369,7 @@ where
 
                 // For every node in the eclass we construct a substitution (if one exists)
                 // and add those substitutions to our list of results
-                for node in self.get_enodes_in_eclass(&eclass.logical_id()) {
+                for node in self.get_enodes_in_eclass(&eclass) {
                     if node.term.matches_pattern(pattern) {
                         // Create list for possible substitution sets
                         let mut subst_list = vec![subst.clone()];
@@ -449,7 +423,6 @@ where
         new_id
     }
 
-    // TODO: Update rebuild and repair to reflect the multegraph structure
     /// Rebuild the e-graph.
     /// This function should be called after a series of merges to restore the invariants of the e-graph.
     pub fn rebuild(&mut self) {
@@ -478,7 +451,6 @@ where
     where
         Term<L>: Clone + Eq + Hash + Debug,
     {
-        // TODO: Optimizations to update prop sats
         let eclass = self.get_eclass(&id).unwrap().clone();
 
         let mut new_parents: IndexMap<Term<L>, Id> = IndexMap::new();
@@ -508,76 +480,13 @@ where
 
     /// Extract an expression from the EGraph.
     /// Given an Id, find an expression that corresponds to the EClass of that Id.
-    pub fn extract(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
+    pub fn extract(&self, _id: Id, _cost_func: &dyn CostFunction<L, u64>) -> Expr<L> {
         todo!("Implement extraction of expression from EGraph");
-    }
-
-    // == Cascades style functions ==
-    // Cascades uses 6 tasks to explore and optimize the e-graph:
-    // 1. Optimize (Extract) Class - find the lowest cost expression in an e-class
-    // 2. Optimize (Extract) Node - find the lowest cost expression for an e-node
-    // 3. Explore Class - explore an e-class by exploring all its e-nodes
-    // 4. Explore Node - explore an e-node by applying all applicable rewrite rules
-    // 5. Apply Rule - apply a rewrite rule to an e-node
-    // 6. Optimize Inputs - optimize the inputs of an e-node (i.e. get to the children)
-    //
-    // Traditionally, "optimize" tasks generate physical expressions, while "explore" tasks generate logical expressions.
-    // Additionally, the tasks are recursive (use a stack for practical purposes) and interdependent.
-    // For example, optimizing a class involves optimizing its nodes, which in turn involves optimizing their inputs.
-    // We don't optimize until we have also explored the relevant parts of the e-graph.
-    //
-    // If we don't distinguish between logical and physical expressions, we can simplify the implementation.
-    // 1. Explore class (optionally optimize by extracting lowest cost expression)
-    // 2. Explore node (optionally optimize by extracting lowest cost expression)
-    // 3. Explore inputs
-    // 4. Apply rule
-    // ==============================
-    // FIXME: all of this functionality should actually be moved outside the e-graph to the control flow loop
-    // we need to distill any specific functionality that actually belongs in the e-graph itself
-    // For now, we might be able to get away with the standard functions and keep boring old e-matching, but maybe adjust inputs to specific nodes?
-
-    /// Optimize (Extract) Class - find the lowest cost expression in an e-class
-    /// Traditionally, we explore
-    /// TODO: Implement
-    pub fn optimize_class(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
-        // Explore group first
-        // Then optimize nodes
-        // Return lowest cost expression
-        todo!("Implement optimize_class");
-    }
-
-    /// Optimize (Extract) Node - find the lowest cost expression for an e-node
-    /// TODO: Implement
-    pub fn optimize_node(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
-        todo!("Implement optimize_node");
-    }
-
-    /// Optimize Inputs - optimize the inputs of an e-node (i.e. get to the children)
-    /// TODO: Implement
-    pub fn optimize_inputs(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
-        todo!("Implement optimize_inputs");
-    }
-
-    /// Explore Class - explore an e-class by exploring all its e-nodes
-    pub fn explore_class(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
-        todo!("Implement explore_class");
-    }
-
-    /// Explore Node - explore an e-node by applying all applicable rewrite rules
-    pub fn explore_node(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
-        todo!("Implement explore_node");
-    }
-
-    /// Apply Rule - apply a rewrite rule to an e-node
-    pub fn apply_rule(&self, _id: Id, _rule: Rule<L>) -> Expr<L> {
-        todo!("Implement apply_rule");
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::hash::Hasher;
-
     use crate::impl_oplang_default;
 
     use super::*;
@@ -615,49 +524,7 @@ mod tests {
         }
     }
 
-    // Test properties for testing
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd)]
-    struct TestProp(u64);
-
-    impl Hash for TestProp {
-        fn hash<H: Hasher>(&self, state: &mut H) {
-            self.0.hash(state);
-        }
-    }
-
-    impl Display for TestProp {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            write!(f, "{}", self.0)
-        }
-    }
-
-    impl PropertySet for TestProp {
-        fn bottom() -> Self {
-            TestProp(0)
-        }
-
-        fn meet(&self, other: &Self) -> Self {
-            TestProp(std::cmp::min(self.0, other.0))
-        }
-
-        fn join(&self, other: &Self) -> Option<Self> {
-            Some(TestProp(std::cmp::max(self.0, other.0)))
-        }
-    }
-
-    impl From<TestOp> for TestProp {
-        fn from(_op: TestOp) -> Self {
-            TestProp::bottom()
-        }
-    }
-
-    // Use unit type for analysis to simplify testing
-    type TestEGraph = EGraph<TestOp, TestProp>;
-
-    // Helper functions for creating PropInfo
-    fn test_prop_info() -> PropInfo<TestOp, TestProp> {
-        PropInfo::default()
-    }
+    type TestEGraph = EGraph<TestOp>;
 
     fn make_const_expr(n: i32) -> Expr<TestOp> {
         Expr::new(TestOp::Const(n), vec![])
@@ -694,13 +561,13 @@ mod tests {
 
     #[test]
     fn test_egraph_new() {
-        let egraph: TestEGraph = EGraph::new(test_prop_info());
+        let egraph: TestEGraph = EGraph::new();
         assert_eq!(egraph.eclass_ids().len(), 0);
     }
 
     #[test]
     fn test_add_expr_constants() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let expr1 = make_const_expr(42);
         let expr2 = make_const_expr(42);
@@ -721,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_add_expr_complex() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let a = make_const_expr(1);
         let b = make_const_expr(2);
@@ -740,7 +607,7 @@ mod tests {
 
     #[test]
     fn test_get_eclass() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
         let expr = make_const_expr(42);
         let id = egraph.add_expr(&expr);
 
@@ -749,14 +616,14 @@ mod tests {
         assert_eq!(eclass.unwrap().id, id);
 
         // Non-existent ID should return None
-        let non_existent_id = Id(999);
+        let non_existent_id: Id = 999;
         let non_existent_eclass = egraph.get_eclass(&non_existent_id);
         assert!(non_existent_eclass.is_none());
     }
 
     #[test]
     fn test_get_enode() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
         let expr = make_const_expr(42);
         let id = egraph.add_expr(&expr);
 
@@ -767,7 +634,7 @@ mod tests {
 
     #[test]
     fn test_get_enodes_in_eclass() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
         let expr = make_const_expr(42);
         let id = egraph.add_expr(&expr);
 
@@ -779,7 +646,7 @@ mod tests {
 
     #[test]
     fn test_find() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
         let expr = make_const_expr(42);
         let id = egraph.add_expr(&expr);
 
@@ -789,29 +656,23 @@ mod tests {
 
     #[test]
     fn test_canonicalize() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const1 = make_const_expr(1);
         let const2 = make_const_expr(2);
         let id1 = egraph.add_expr(&const1);
         let id2 = egraph.add_expr(&const2);
 
-        let term = Term::new(
-            TestOp::Add,
-            vec![MulteId(id1, PropSetId(0)), MulteId(id2, PropSetId(0))],
-        );
+        let term = Term::new(TestOp::Add, vec![id1, id2]);
         let canonical = egraph.canonicalize(&term);
 
         assert_eq!(canonical.op(), &TestOp::Add);
-        assert_eq!(
-            canonical.args(),
-            &vec![MulteId(id1, PropSetId(0)), MulteId(id2, PropSetId(0))]
-        );
+        assert_eq!(canonical.args(), &vec![id1, id2]);
     }
 
     #[test]
     fn test_merge_different_eclasses() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let expr1 = make_const_expr(1);
         let expr2 = make_const_expr(2);
@@ -833,7 +694,7 @@ mod tests {
 
     #[test]
     fn test_merge_same_eclass() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let expr = make_const_expr(42);
         let id = egraph.add_expr(&expr);
@@ -848,23 +709,23 @@ mod tests {
 
     #[test]
     fn test_ematch_variable() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const_expr = make_const_expr(42);
         let var_pattern = make_var_pattern("x");
         let const_id = egraph.add_expr(&const_expr);
 
         let subst = IndexMap::new();
-        let matches = egraph.ematch(&var_pattern, MulteId(const_id, PropSetId(0)), &subst);
+        let matches = egraph.ematch(&var_pattern, const_id, &subst);
 
         // Variable should match any eclass
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].get("x"), Some(&MulteId(const_id, PropSetId(0))));
+        assert_eq!(matches[0].get("x"), Some(&const_id));
     }
 
     #[test]
     fn test_ematch_constant() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const_expr = make_const_expr(42);
         let const_pattern = make_const_pattern(42);
@@ -874,21 +735,17 @@ mod tests {
         let subst = IndexMap::new();
 
         // Matching same constant should succeed
-        let matches1 = egraph.ematch(&const_pattern, MulteId(const_id, PropSetId(0)), &subst);
+        let matches1 = egraph.ematch(&const_pattern, const_id, &subst);
         assert_eq!(matches1.len(), 1);
 
         // Matching different constant should fail
-        let matches2 = egraph.ematch(
-            &other_const_pattern,
-            MulteId(const_id, PropSetId(0)),
-            &subst,
-        );
+        let matches2 = egraph.ematch(&other_const_pattern, const_id, &subst);
         assert_eq!(matches2.len(), 0);
     }
 
     #[test]
     fn test_ematch_complex_expression() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const1 = make_const_expr(1);
         let const2 = make_const_expr(2);
@@ -901,16 +758,16 @@ mod tests {
         let pattern = Pattern::new(OpOrVar::Op(TestOp::Add), vec![var_pattern, const2_pattern]);
 
         let subst = IndexMap::new();
-        let matches = egraph.ematch(&pattern, MulteId(add_id, PropSetId(0)), &subst);
+        let matches = egraph.ematch(&pattern, add_id, &subst);
 
         // Should match with x = const(1)
         assert_eq!(matches.len(), 1);
-        assert_eq!(matches[0].get("x"), Some(&MulteId(const1_id, PropSetId(0))));
+        assert_eq!(matches[0].get("x"), Some(&const1_id));
     }
 
     #[test]
     fn test_add_enode_match_with_variable() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const_expr = make_const_expr(42);
         let const_id = egraph.add_expr(&const_expr);
@@ -926,7 +783,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Variable")]
     fn test_add_enode_match_missing_variable() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let var_pattern = make_var_pattern("x");
         let subst = IndexMap::new(); // Empty substitution
@@ -937,7 +794,7 @@ mod tests {
 
     #[test]
     fn test_rebuild_simple() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let expr1 = make_const_expr(1);
         let expr2 = make_const_expr(2);
@@ -956,7 +813,7 @@ mod tests {
 
     #[test]
     fn test_rebuild_with_parents() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const1 = make_const_expr(1);
         let const2 = make_const_expr(2);
@@ -984,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_multiple_merges_and_rebuild() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         // Create several constants
         let constants: Vec<_> = (0..5).map(|i| make_const_expr(i)).collect();
@@ -1013,7 +870,7 @@ mod tests {
 
     #[test]
     fn test_nested_expressions() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let a = make_const_expr(1);
         let b = make_const_expr(2);
@@ -1034,7 +891,7 @@ mod tests {
 
     #[test]
     fn test_expression_reuse() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let a = make_const_expr(1);
         let b = make_const_expr(2);
@@ -1052,7 +909,7 @@ mod tests {
 
     #[test]
     fn test_parent_child_relationships() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let a = make_const_expr(1);
         let b = make_const_expr(2);
@@ -1072,7 +929,7 @@ mod tests {
 
     #[test]
     fn test_find_compress() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let expr1 = make_const_expr(1);
         let expr2 = make_const_expr(2);
@@ -1095,7 +952,7 @@ mod tests {
 
     #[test]
     fn test_ematch_variable_already_bound() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const_expr1 = make_const_expr(42);
         let const_expr2 = make_const_expr(24);
@@ -1106,20 +963,20 @@ mod tests {
 
         // Create substitution with x already bound to const_id1
         let mut subst = IndexMap::new();
-        subst.insert("x".to_string(), MulteId(const_id1, PropSetId(0)));
+        subst.insert("x".to_string(), const_id1);
 
         // Matching variable x against const_id1 should succeed
-        let matches1 = egraph.ematch(&var_pattern, MulteId(const_id1, PropSetId(0)), &subst);
+        let matches1 = egraph.ematch(&var_pattern, const_id1, &subst);
         assert_eq!(matches1.len(), 1);
 
         // Matching variable x against const_id2 should fail (variable already bound to different value)
-        let matches2 = egraph.ematch(&var_pattern, MulteId(const_id2, PropSetId(0)), &subst);
+        let matches2 = egraph.ematch(&var_pattern, const_id2, &subst);
         assert_eq!(matches2.len(), 0);
     }
 
     #[test]
     fn test_eclass_merge_with_multiple_nodes() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         let const1 = make_const_expr(1);
         let const2 = make_const_expr(2);
@@ -1149,7 +1006,7 @@ mod tests {
 
     #[test]
     fn test_complex_pattern_matching() {
-        let mut egraph: TestEGraph = EGraph::new(test_prop_info());
+        let mut egraph: TestEGraph = EGraph::new();
 
         // Create expression: add(mul(x, 2), 3)
         let two = make_const_expr(2);
@@ -1167,15 +1024,12 @@ mod tests {
         let pattern = Pattern::new(OpOrVar::Op(TestOp::Add), vec![y_var, three_pattern]);
 
         let subst = IndexMap::new();
-        let matches = egraph.ematch(&pattern, MulteId(complex_id, PropSetId(0)), &subst);
+        let matches = egraph.ematch(&pattern, complex_id, &subst);
 
         // Should match with y = mul(x, 2)
         assert_eq!(matches.len(), 1);
         let expected_mul_id =
             egraph.add_expr(&make_mul_expr(make_var_expr("x"), make_const_expr(2)));
-        assert_eq!(
-            matches[0].get("y"),
-            Some(&MulteId(expected_mul_id, PropSetId(0)))
-        );
+        assert_eq!(matches[0].get("y"), Some(&expected_mul_id));
     }
 }
