@@ -1,10 +1,11 @@
+use crate::property::PropertySet;
 use crate::propertymap::PropertySetMap;
+use crate::rule::Rule;
 use crate::types::*;
 use crate::unionfind::UnionFind;
 use indexmap::IndexMap;
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
-use crate::property::PropertySet;
 
 /// ENode.
 /// TODO: Add docstring.
@@ -112,7 +113,7 @@ where
     P: PropertySet,
 {
     /// Set of functions used to derive property sets from expressions and patterns.
-    pinfo: PropInfo<L, P>,
+    // pinfo: PropInfo<L, P>,
     /// UnionFind managing equivalence classes.
     uf: UnionFind,
     /// Hashcons mapping terms to their unique identifiers.
@@ -133,15 +134,15 @@ where
     L: OpLang,
     P: PropertySet,
 {
-    pub fn new(pinfo: PropInfo<L, P>) -> Self {
+    pub fn new() -> Self {
         EGraph {
-            pinfo,
             uf: UnionFind::new(),
             hc: IndexMap::new(),
             pc: PropertySetMap::new(),
             eclasses: IndexMap::new(),
             enodes: IndexMap::new(),
             repairs: Vec::new(),
+            // TODO: Add PropInfo parameter
         }
     }
 
@@ -587,6 +588,67 @@ where
     /// Given an Id, find an expression that corresponds to the EClass of that Id.
     pub fn extract(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
         todo!("Implement extraction of expression from EGraph");
+    }
+
+    // == Cascades style functions ==
+    // Cascades uses 6 tasks to explore and optimize the e-graph:
+    // 1. Optimize (Extract) Class - find the lowest cost expression in an e-class
+    // 2. Optimize (Extract) Node - find the lowest cost expression for an e-node
+    // 3. Explore Class - explore an e-class by exploring all its e-nodes
+    // 4. Explore Node - explore an e-node by applying all applicable rewrite rules
+    // 5. Apply Rule - apply a rewrite rule to an e-node
+    // 6. Optimize Inputs - optimize the inputs of an e-node (i.e. get to the children)
+    //
+    // Traditionally, "optimize" tasks generate physical expressions, while "explore" tasks generate logical expressions.
+    // Additionally, the tasks are recursive (use a stack for practical purposes) and interdependent.
+    // For example, optimizing a class involves optimizing its nodes, which in turn involves optimizing their inputs.
+    // We don't optimize until we have also explored the relevant parts of the e-graph.
+    //
+    // If we don't distinguish between logical and physical expressions, we can simplify the implementation.
+    // 1. Explore class (optionally optimize by extracting lowest cost expression)
+    // 2. Explore node (optionally optimize by extracting lowest cost expression)
+    // 3. Explore inputs
+    // 4. Apply rule
+    // ==============================
+    // FIXME: all of this functionality should actually be moved outside the e-graph to the control flow loop
+    // we need to distill any specific functionality that actually belongs in the e-graph itself
+    // For now, we might be able to get away with the standard functions and keep boring old e-matching, but maybe adjust inputs to specific nodes?
+
+    /// Optimize (Extract) Class - find the lowest cost expression in an e-class
+    /// Traditionally, we explore
+    /// TODO: Implement
+    pub fn optimize_class(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
+        // Explore group first
+        // Then optimize nodes
+        // Return lowest cost expression
+        todo!("Implement optimize_class");
+    }
+
+    /// Optimize (Extract) Node - find the lowest cost expression for an e-node
+    /// TODO: Implement
+    pub fn optimize_node(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
+        todo!("Implement optimize_node");
+    }
+
+    /// Optimize Inputs - optimize the inputs of an e-node (i.e. get to the children)
+    /// TODO: Implement
+    pub fn optimize_inputs(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
+        todo!("Implement optimize_inputs");
+    }
+
+    /// Explore Class - explore an e-class by exploring all its e-nodes
+    pub fn explore_class(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
+        todo!("Implement explore_class");
+    }
+
+    /// Explore Node - explore an e-node by applying all applicable rewrite rules
+    pub fn explore_node(&self, _id: Id, _cost_func: &dyn CostFunction<L, P, u64>) -> Expr<L> {
+        todo!("Implement explore_node");
+    }
+
+    /// Apply Rule - apply a rewrite rule to an e-node
+    pub fn apply_rule(&self, _id: Id, _rule: Rule<L>) -> Expr<L> {
+        todo!("Implement apply_rule");
     }
 }
 
