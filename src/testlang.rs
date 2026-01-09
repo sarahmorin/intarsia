@@ -1,8 +1,8 @@
 use crate::impl_oplang_default;
-use crate::parser::{Parseable, Parser};
+use crate::parser::Parseable;
 use crate::types::*;
-use crate::property::{PropertySet};
-use bitmaps::Bitmap;
+// use crate::property::{PropertySet};
+// use bitmaps::Bitmap;
 /// A stand in language for testing purposes.
 use std::fmt::{Debug, Display};
 use std::hash::Hash;
@@ -14,9 +14,9 @@ pub type ColumnName = String;
 pub enum QueryOps {
     // ============================
     // Basic Relational Algebra Operations
-    Select,     // Select(input, predicate)
-    Join,       // Join(left, right, predicate)
-    Project,    // Project(input, columns)
+    Select,  // Select(input, predicate)
+    Join,    // Join(left, right, predicate)
+    Project, // Project(input, columns)
     // ============================
     // Basic Access Methods
     TableScan,  // TableScan(table, columns)
@@ -33,28 +33,28 @@ pub enum QueryOps {
     Null,
     // ============================
     // Predicate Operators
-    Eq,         // Eq(left, right)
-    Neq,        // Neq(left, right)
-    Gt,         // Gt(left, right)
-    Lt,         // Lt(left, right)
-    Gte,       // Gte(left, right)
-    Lte,       // Lte(left, right)
-    And,       // And(left, right)
-    Or,        // Or(left, right)
-    Not,       // Not(expr)
+    Eq,  // Eq(left, right)
+    Neq, // Neq(left, right)
+    Gt,  // Gt(left, right)
+    Lt,  // Lt(left, right)
+    Gte, // Gte(left, right)
+    Lte, // Lte(left, right)
+    And, // And(left, right)
+    Or,  // Or(left, right)
+    Not, // Not(expr)
     // ============================
     // Arithmetic Operators
-    Add,   // Add(left, right)
-    Sub,   // Sub(left, right)
-    Mul,   // Mul(left, right)
-    Div,   // Div(left, right)
+    Add, // Add(left, right)
+    Sub, // Sub(left, right)
+    Mul, // Mul(left, right)
+    Div, // Div(left, right)
     // ============================
     // Physical Operators
-    Sort,       // Sort(input, order)
-    Filter,     // Filter(input, predicate)
-    NLJoin,     // NLJoin(left, right, predicate)
-    HashJoin,   // HashJoin(left, right, predicate)
-    MergeJoin,  // MergeJoin(left, right, predicate)
+    Sort,      // Sort(input, order)
+    Filter,    // Filter(input, predicate)
+    NLJoin,    // NLJoin(left, right, predicate)
+    HashJoin,  // HashJoin(left, right, predicate)
+    MergeJoin, // MergeJoin(left, right, predicate)
 }
 
 impl Parseable for QueryOps {
@@ -102,7 +102,7 @@ impl Parseable for QueryOps {
                     if let Some(first_close) = trimmed.find(']') {
                         let table_name = &trimmed[4..first_close];
                         let remaining = &trimmed[first_close + 1..];
-                        
+
                         if remaining.starts_with('[') && remaining.ends_with(']') {
                             let columns_str = &remaining[1..remaining.len() - 1];
                             let columns: Vec<String> = columns_str
@@ -209,12 +209,12 @@ impl OpLang for QueryOps {
             | QueryOps::Mul
             | QueryOps::Div => 2,
             // Query operators with 2 arguments
-            QueryOps::Select => 2,    // Select(input, predicate)
-            QueryOps::Project => 2,   // Project(input, columns)
-            QueryOps::Sort => 2,      // Sort(input, order)
-            QueryOps::Filter => 2,    // Filter(input, predicate)
-            QueryOps::IndexScan => 2, // IndexScan(table, index)
-            QueryOps::TableScan => 2, // TableScan(table, predicate)
+            QueryOps::Select => 2,     // Select(input, predicate)
+            QueryOps::Project => 2,    // Project(input, columns)
+            QueryOps::Sort => 2,       // Sort(input, order)
+            QueryOps::Filter => 2,     // Filter(input, predicate)
+            QueryOps::IndexScan => 2,  // IndexScan(table, index)
+            QueryOps::TableScan => 2,  // TableScan(table, predicate)
             QueryOps::HashLookup => 2, // HashLookup(table, key)
             // Query operators with 3 arguments
             QueryOps::Join => 3,      // Join(left, right, predicate)
@@ -225,103 +225,104 @@ impl OpLang for QueryOps {
     }
 }
 
-/// Represents a physical property set for query optimization.
-/// This is a simple example with a single property: sorted stored in a bitmap.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct PhysicalPropertySet {
-    sort: Bitmap<3>,
-}
+// /// Represents a physical property set for query optimization.
+// /// This is a simple example with a single property: sorted stored in a bitmap.
+// #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+// pub struct PhysicalPropertySet {
+//     sort: Bitmap<3>,
+// }
 
-impl PhysicalPropertySet {
-    /// Creates a physical property set from a sort index.
-    // FIXME: this is dummy test implementation
-    // In a real implementation, we would call out to a larger data struct to get the real column sort bitmaps
-    pub fn from_cols(cols: String) -> Self {
-        let mut sort = Bitmap::new();
-        match cols.as_str() {
-            "x" => {
-                sort.set(0, true); // Assume column "x" is sorted
-            }
-            "y" => {
-                sort.set(1, true); // Assume column "y" is sorted
-            }
-            "z" => {
-                sort.set(2, true); // Assume column "z" is sorted
-            }
-            "xy" => {
-                sort.set(0, true); // Assume both "x" and "y" are sorted
-                sort.set(1, true);
-            }
-            "yz" => {
-                sort.set(1, true); // Assume both "y" and "z" are sorted
-                sort.set(2, true);
-            }
-            "xz" => {
-                sort.set(0, true); // Assume both "x" and "z" are sorted
-                sort.set(2, true);
-            }
-            "xyz" => {
-                sort.set(0, true); // Assume all "x", "y", and "z" are sorted
-                sort.set(1, true);
-                sort.set(2, true);
-            }
-            _ => {}
-        }
-        PhysicalPropertySet { sort }
-    }
-}
+// impl PhysicalPropertySet {
+//     /// Creates a physical property set from a sort index.
+//     // FIXME: this is dummy test implementation
+//     // In a real implementation, we would call out to a larger data struct to get the real column sort bitmaps
+//     pub fn from_cols(cols: String) -> Self {
+//         let mut sort = Bitmap::new();
+//         match cols.as_str() {
+//             "x" => {
+//                 sort.set(0, true); // Assume column "x" is sorted
+//             }
+//             "y" => {
+//                 sort.set(1, true); // Assume column "y" is sorted
+//             }
+//             "z" => {
+//                 sort.set(2, true); // Assume column "z" is sorted
+//             }
+//             "xy" => {
+//                 sort.set(0, true); // Assume both "x" and "y" are sorted
+//                 sort.set(1, true);
+//             }
+//             "yz" => {
+//                 sort.set(1, true); // Assume both "y" and "z" are sorted
+//                 sort.set(2, true);
+//             }
+//             "xz" => {
+//                 sort.set(0, true); // Assume both "x" and "z" are sorted
+//                 sort.set(2, true);
+//             }
+//             "xyz" => {
+//                 sort.set(0, true); // Assume all "x", "y", and "z" are sorted
+//                 sort.set(1, true);
+//                 sort.set(2, true);
+//             }
+//             _ => {}
+//         }
+//         PhysicalPropertySet { sort }
+//     }
+// }
 
-impl Display for PhysicalPropertySet {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "PhysicalPropertySet(sort: {:?})", self.sort)
-    }
-}
+// impl Display for PhysicalPropertySet {
+//     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+//         write!(f, "PhysicalPropertySet(sort: {:?})", self.sort)
+//     }
+// }
 
-impl PropertySet for PhysicalPropertySet {
-    fn bottom() -> Self {
-        Self {
-            sort: Bitmap::new(),
-        }
-    }
+// impl PropertySet for PhysicalPropertySet {
+//     fn bottom() -> Self {
+//         Self {
+//             sort: Bitmap::new(),
+//         }
+//     }
 
-    fn meet(&self, other: &Self) -> Self {
-        let mut new_sort = Bitmap::new();
-        for i in 0..3 {
-            new_sort.set(i, self.sort.get(i) && other.sort.get(i));
-        }
-        Self { sort: new_sort }
-    }
+//     fn meet(&self, other: &Self) -> Self {
+//         let mut new_sort = Bitmap::new();
+//         for i in 0..3 {
+//             new_sort.set(i, self.sort.get(i) && other.sort.get(i));
+//         }
+//         Self { sort: new_sort }
+//     }
 
-    fn join(&self, other: &Self) -> Option<Self> {
-        None // Join is not defined for this simple property set
-    }
-}
+//     fn join(&self, other: &Self) -> Option<Self> {
+//         None // Join is not defined for this simple property set
+//     }
+// }
 
-impl PartialOrd for PhysicalPropertySet {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.sort.partial_cmp(&other.sort)
-    }
-}
+// impl PartialOrd for PhysicalPropertySet {
+//     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+//         self.sort.partial_cmp(&other.sort)
+//     }
+// }
 
-impl From<QueryOps> for PhysicalPropertySet {
-    fn from(op: QueryOps) -> Self {
-        match op {
-            QueryOps::ColumnSet(_, cols) => {
-                // For now, just use the first column for simplicity
-                if let Some(first_col) = cols.first() {
-                    PhysicalPropertySet::from_cols(first_col.clone())
-                } else {
-                    PhysicalPropertySet::bottom()
-                }
-            }
-            _ => PhysicalPropertySet::bottom(),
-        }
-    }
-}
+// impl From<QueryOps> for PhysicalPropertySet {
+//     fn from(op: QueryOps) -> Self {
+//         match op {
+//             QueryOps::ColumnSet(_, cols) => {
+//                 // For now, just use the first column for simplicity
+//                 if let Some(first_col) = cols.first() {
+//                     PhysicalPropertySet::from_cols(first_col.clone())
+//                 } else {
+//                     PhysicalPropertySet::bottom()
+//                 }
+//             }
+//             _ => PhysicalPropertySet::bottom(),
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::parser::Parser;
 
     #[test]
     fn test_parse_boolean_constants() {
