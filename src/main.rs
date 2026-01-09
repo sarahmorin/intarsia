@@ -1,27 +1,21 @@
-mod multegraph;
+// mod multegraph;
 mod parser;
+mod property;
 mod propertymap;
 mod rule;
 mod testlang;
 mod types;
 mod unionfind;
-mod property;
 use testlang::QueryOps;
 mod costlang;
+mod egg;
+mod egraph;
 
 fn main() {
     // Create a ruleset
     let ruleset = vec![
-        mk_rule!(
-            "select_to_filter",
-            "Select(?a, ?b)",
-            "Filter(?a, ?b)"
-        ),
-        mk_rule!(
-            "table_to_scan",
-            "Table(?a)",
-            "TableScan(?a, Null)"
-        ),
+        mk_rule!("select_to_filter", "Select(?a, ?b)", "Filter(?a, ?b)"),
+        mk_rule!("table_to_scan", "Table(?a)", "TableScan(?a, Null)"),
         mk_rule!(
             "join_to_mergejoin",
             "Join(?a, ?b, ?c)",
@@ -32,11 +26,7 @@ fn main() {
             "Join(?a, ?b, ?c)",
             "HashJoin(?a, ?b, ?c)"
         ),
-        mk_rule!(
-            "join_to_nljoin",
-            "Join(?a, ?b, ?c)",
-            "NLJoin(?a, ?b, ?c)"
-        ),
+        mk_rule!("join_to_nljoin", "Join(?a, ?b, ?c)", "NLJoin(?a, ?b, ?c)"),
         mk_rule!(
             "filter_pushdown",
             "Filter(Join(?a, ?b, ?c), ?d)",
@@ -52,26 +42,10 @@ fn main() {
             "Mul(?a, Add(?b, ?c))",
             "Add(Mul(?a, ?b), Mul(?a, ?c))"
         ),
-        mk_rule!(
-            "commute_addition",
-            "Add(?a, ?b)",
-            "Add(?b, ?a)"
-        ),
-        mk_rule!(
-            "commute_multiplication",
-            "Mul(?a, ?b)",
-            "Mul(?b, ?a)"
-        ),
-        mk_rule!(
-            "mul_division",
-            "Eq(Mul(?a, ?b), ?c)",
-            "Eq(?b, Div(?c, ?a))"
-        ),
-        mk_rule!(
-            "division_mul",
-            "Eq(?a, Div(?b, ?c))",
-            "Eq(Mul(?a, ?c), ?b)"
-        ),
+        mk_rule!("commute_addition", "Add(?a, ?b)", "Add(?b, ?a)"),
+        mk_rule!("commute_multiplication", "Mul(?a, ?b)", "Mul(?b, ?a)"),
+        mk_rule!("mul_division", "Eq(Mul(?a, ?b), ?c)", "Eq(?b, Div(?c, ?a))"),
+        mk_rule!("division_mul", "Eq(?a, Div(?b, ?c))", "Eq(Mul(?a, ?c), ?b)"),
     ];
 
     // Arithmetic Example Query
@@ -92,6 +66,7 @@ fn main() {
             Cols(A.x, A.w, B.y, B.z), \
             Null\
         )",
-    ).unwrap();
+    )
+    .unwrap();
     println!("{:?}", query);
 }
