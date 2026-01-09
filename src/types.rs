@@ -130,10 +130,10 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Expr(op: {}, args: {:?}, propset: {:?})",
+            "Expr(op: {}, args: {:?}",
             self.op,
             self.args,
-            self.propset()
+            // self.propset()
         )
     }
 }

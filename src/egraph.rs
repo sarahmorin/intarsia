@@ -1,4 +1,3 @@
-use crate::rule::Rule;
 use crate::types::*;
 use crate::unionfind::UnionFind;
 use indexmap::IndexMap;
@@ -75,6 +74,10 @@ impl EClass {
         &self.parents
     }
 
+    pub fn enode_count(&self) -> usize {
+        self.enodes.len()
+    }
+
     /// Merges another EClass into this one.
     pub fn merge_in_place(&mut self, other: &EClass) {
         self.enodes.extend(other.enodes.clone());
@@ -95,6 +98,25 @@ impl EClass {
 
 // TODO: Create a statistics struct to track various e-graph stats
 // will be used for debugging and performance analysis
+struct EGraphStats {
+    eclass_count: usize,
+    enode_count: usize,
+    max_eclass_size: usize,
+    total_repairs_queued: usize,
+    total_repairs_performed: usize,
+}
+
+impl EGraphStats {
+    pub fn new() -> Self {
+        EGraphStats {
+            eclass_count: 0,
+            enode_count: 0,
+            max_eclass_size: 0,
+            total_repairs_queued: 0,
+            total_repairs_performed: 0,
+        }
+    }
+}
 
 /// EGraph
 /// [ ]: Add docstring.
@@ -112,8 +134,12 @@ where
     enodes: IndexMap<Id, ENode<L>>,
     /// List of EClasses we need to repair.
     repairs: Vec<Id>,
-    // TODO: add optional statistics field
-    // TODO: add read/write phase tracking for safety??
+    /// Stats about the EGraph.
+    stats: EGraphStats,
+    /// Whether the EGraph is stable (no pending repairs) and can be reliably queried.
+    stable: bool, // TODO: Use this flag to prevent querying when unstable
+    /// Flag to track if the e-graph has been modified since last rebuild.
+    pub modified: bool,
 }
 
 impl<L> EGraph<L>
@@ -127,6 +153,9 @@ where
             eclasses: IndexMap::new(),
             enodes: IndexMap::new(),
             repairs: Vec::new(),
+            stats: EGraphStats::new(),
+            stable: true,
+            modified: false,
         }
     }
 
@@ -161,7 +190,7 @@ where
     }
 
     /// Get nodes in an EClass.
-    /// For logical EClasses, pass the logical Id. For property-based searches, use get_enodes_by_propset instead.
+    /// Pass the canonical (representative) e-class Id.
     pub fn get_enodes_in_eclass(&self, id: &Id) -> Vec<&ENode<L>> {
         self.get_eclass(id)
             .unwrap()
@@ -193,18 +222,18 @@ where
     }
 
     /// Union two logical EClasses.
-    pub fn union(&mut self, id1: Id, id2: Id) -> Id {
+    fn union(&mut self, id1: Id, id2: Id) -> Id {
         self.uf.union(id1, id2)
     }
 
     /// Add a new set to the UnionFind and return its Id.
-    pub fn add_set(&mut self) -> Id {
+    fn add_set(&mut self) -> Id {
         self.uf.add_set()
     }
 
     /// Canonicalize a term by finding the canonical representative of its argument EClasses.
     /// Recursively finds the representative of the EClass for each term in the argument.
-    pub fn canonicalize(&self, term: &Term<L>) -> Term<L> {
+    fn canonicalize(&self, term: &Term<L>) -> Term<L> {
         let op = term.op().clone();
         let args = term.args().iter().map(|arg| self.find(*arg)).collect();
         Term::new(op, args)
@@ -216,7 +245,6 @@ where
         // Recursively convert expression to a term
         let arg_ids: Vec<Id> = expr.args().iter().map(|arg| self.add_expr(arg)).collect();
 
-        // Get properties of the operator
         let term = Term::new(expr.op().clone(), arg_ids);
 
         // Canonicalize the term
@@ -227,22 +255,31 @@ where
         if let Some(&id) = self.hc.get(&canonical_term) {
             id
         } else {
+            // Create a new e-node/e-class ID
             let new_id = self.add_set();
+            // Insert new term into hashcons mapping to Id
             self.hc.insert(canonical_term.clone(), new_id);
+            // Create and insert new ENode
             let enode = ENode::new(new_id, canonical_term.clone());
             self.enodes.insert(new_id, enode);
+            // Create and insert new EClass, add ENode to EClass
             let mut new_eclass = EClass::new(new_id);
             new_eclass.add_enode(new_id);
             self.eclasses.insert(new_id, new_eclass);
+            // Add this new e-node as a parent to its children
             for child in canonical_term.args() {
                 self.get_eclass_mut(&child).unwrap().add_parent(new_id);
             }
+            // Update stats
+            self.stats.enode_count += 1;
+            self.stats.eclass_count += 1;
+
             new_id
         }
     }
 
     /// Recursively reconstruct the canonical expression for an EClass given its Id.
-    pub fn get_canonical_expr(&self, id: &Id) -> Expr<L> {
+    fn get_canonical_expr(&self, id: &Id) -> Expr<L> {
         if let Some(enode) = self.get_enode(&self.find(*id)) {
             return Expr::new(
                 enode.term.op().clone(),
@@ -258,7 +295,7 @@ where
     }
 
     /// Convert a Pattern with a Substitution into its canonical Expr in the EGraph.
-    pub fn to_canonical_expr(&self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Expr<L> {
+    fn to_canonical_expr(&self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Expr<L> {
         match pattern.op() {
             OpOrVar::Var(s) => {
                 // If the expression is a variable, we need to substitute it with the corresponding Id
@@ -280,7 +317,7 @@ where
     }
 
     /// Insert an ENode from an Expr and Substitution into the EGraph.
-    pub fn add_enode_match(&mut self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Id {
+    pub fn add_match(&mut self, pattern: &Pattern<L>, subst: &Subst<Var, Id>) -> Id {
         match pattern.op() {
             OpOrVar::Var(s) => {
                 // If the expression is a variable, we need to substitute it with the corresponding Id
@@ -294,10 +331,9 @@ where
                 let arg_ids: Vec<Id> = pattern
                     .args()
                     .iter()
-                    .map(|arg| self.add_enode_match(arg, subst))
+                    .map(|arg| self.add_match(arg, subst))
                     .collect();
 
-                // Get properties of the operator
                 let term = Term::new(op.clone(), arg_ids);
 
                 // Canonicalize the term
@@ -308,21 +344,33 @@ where
                 if let Some(&id) = self.hc.get(&canonical_term) {
                     id
                 } else {
+                    // Set modified flag
+                    self.modified = true;
+                    // Create a new e-node/e-class ID
                     let new_id = self.add_set();
+                    // Insert new term into hashcons mapping to Id
                     self.hc.insert(canonical_term.clone(), new_id);
+                    // Create and insert new ENode
                     let enode = ENode::new(new_id, canonical_term.clone());
                     self.enodes.insert(new_id, enode);
+                    // Create and insert new EClass, add ENode to EClass
                     let mut new_eclass = EClass::new(new_id);
                     new_eclass.add_enode(new_id);
                     self.eclasses.insert(new_id, new_eclass);
+                    // Add this new e-node as a parent to its children
                     for child in canonical_term.args() {
                         self.get_eclass_mut(&child).unwrap().add_parent(new_id);
                     }
+                    // Update stats
+                    self.stats.enode_count += 1;
+                    self.stats.eclass_count += 1;
                     new_id
                 }
             }
         }
     }
+
+    // TODO: Add e-matching within a budget
 
     /// Match an expression against an EClass.
     /// Returns a vector of substitutions that match the expression against the EClass.
@@ -332,6 +380,9 @@ where
         eclass: Id,
         subst: &Subst<Var, Id>,
     ) -> Vec<Subst<Var, Id>> {
+        // Canonicalize: callers may pass non-representative Ids after merges.
+        let eclass = self.find(eclass);
+
         fn insert_subst(var: &Var, eclass: Id, subst: &Subst<Var, Id>) -> Option<Subst<Var, Id>> {
             let mut subst_clone = subst.clone();
             if let Some(id) = subst_clone.insert(var.clone(), eclass) {
@@ -404,6 +455,9 @@ where
             return par1;
         }
 
+        // Set modified flag
+        self.modified = true;
+
         // Union the two classes
         let new_id = self.union(par1, par2);
 
@@ -412,6 +466,12 @@ where
         let eclass2 = self.get_eclass(&par2).unwrap().clone();
         let new_eclass = EClass::merge(new_id, &eclass1, &eclass2);
 
+        // Update stats to reflect one less unique eclass
+        self.stats.eclass_count -= 1;
+        if new_eclass.enode_count() > self.stats.max_eclass_size {
+            self.stats.max_eclass_size = new_eclass.enode_count();
+        }
+
         // Remove old e-classes from the map and insert the new one
         self.eclasses.shift_remove(&par1);
         self.eclasses.shift_remove(&par2);
@@ -419,6 +479,7 @@ where
 
         // Add merged e-class to repair list
         self.repairs.push(new_id);
+        self.stats.total_repairs_queued += 1;
 
         new_id
     }
@@ -444,6 +505,9 @@ where
                 self.repair(id);
             }
         }
+
+        // Reset modified flag
+        self.modified = false;
     }
 
     /// Repair an EClass.
@@ -451,6 +515,7 @@ where
     where
         Term<L>: Clone + Eq + Hash + Debug,
     {
+        self.stats.total_repairs_performed += 1;
         let eclass = self.get_eclass(&id).unwrap().clone();
 
         let mut new_parents: IndexMap<Term<L>, Id> = IndexMap::new();
@@ -766,6 +831,35 @@ mod tests {
     }
 
     #[test]
+    fn test_ematch_accepts_non_canonical_eclass_id_after_merge() {
+        let mut egraph: TestEGraph = EGraph::new();
+
+        // Create two distinct (but structurally different) expressions.
+        // We'll merge their e-classes and then query using the merged-away Id.
+        let expr_a = make_add_expr(make_const_expr(1), make_const_expr(2));
+        let expr_b = make_add_expr(make_const_expr(2), make_const_expr(1));
+
+        let id_a = egraph.add_expr(&expr_a);
+        let id_b = egraph.add_expr(&expr_b);
+        assert_ne!(id_a, id_b);
+
+        // Merge and rebuild so one Id is no longer a representative.
+        egraph.merge(id_a, id_b);
+        egraph.rebuild();
+
+        // At this point, `id_b` may no longer be present in the eclass map.
+        assert!(egraph.get_eclass(&id_b).is_none());
+
+        // Regression assertion: ematch should canonicalize the input eclass Id and still succeed.
+        let pat = make_add_pattern(make_const_pattern(1), make_const_pattern(2));
+        let matches = egraph.ematch(&pat, id_b, &IndexMap::new());
+        assert!(
+            !matches.is_empty(),
+            "expected ematch to succeed even when called with a non-canonical eclass id"
+        );
+    }
+
+    #[test]
     fn test_add_enode_match_with_variable() {
         let mut egraph: TestEGraph = EGraph::new();
 
@@ -776,7 +870,7 @@ mod tests {
         let mut subst = IndexMap::new();
         subst.insert("x".to_string(), const_id);
 
-        let result_id = egraph.add_enode_match(&var_pattern, &subst);
+        let result_id = egraph.add_match(&var_pattern, &subst);
         assert_eq!(result_id, const_id);
     }
 
@@ -789,7 +883,7 @@ mod tests {
         let subst = IndexMap::new(); // Empty substitution
 
         // Should panic because variable not in substitution
-        egraph.add_enode_match(&var_pattern, &subst);
+        egraph.add_match(&var_pattern, &subst);
     }
 
     #[test]
