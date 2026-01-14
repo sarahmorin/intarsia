@@ -1,31 +1,26 @@
 /// Egg Module
 /// Runs the traditional egg-style e-graph exploration loop
 use crate::egraph::*;
-use crate::rule::Rule;
+use crate::explore::*;
+use crate::rule::*;
 use crate::types::*;
 
-pub struct RuleMatch<L>
+pub struct Egg<L, R>
 where
     L: OpLang,
-{
-    pub rule: Rule<L>,
-    pub eclass: Id,
-    pub subst_set: Vec<Subst<Var, Id>>,
-}
-
-pub struct Runner<L>
-where
-    L: OpLang,
+    R: RuleSet<L>,
 {
     eg: EGraph<L>,
-    ruleset: Vec<Rule<L>>, // TODO: Make this more generic
+    ruleset: R,
+    // TODO: stats
 }
 
-impl<L> Runner<L>
+impl<L, R> Egg<L, R>
 where
     L: OpLang,
+    R: RuleSet<L>,
 {
-    pub fn new(ruleset: Vec<Rule<L>>) -> Self {
+    pub fn new(ruleset: R) -> Self {
         Self {
             eg: EGraph::new(),
             ruleset: ruleset,
@@ -40,57 +35,61 @@ where
         &mut self.eg
     }
 
-    pub fn ruleset(&self) -> &Vec<Rule<L>> {
+    pub fn ruleset(&self) -> &R {
         &self.ruleset
     }
 
-    pub fn ruleset_mut(&mut self) -> &mut Vec<Rule<L>> {
+    pub fn ruleset_mut(&mut self) -> &mut R {
         &mut self.ruleset
     }
+}
 
-    pub fn run(&mut self, iterations: usize) {
-        // TODO: Do something more efficient like semi-naive evaluation later.
-        // Essentially, for each iteration:
-        // For every e-class, for every rule, try to apply the rule via e-matching
-        // If any new e-classes or e-nodes are added, continue
-        for _ in 0..iterations {
-            let mut matches = Vec::<RuleMatch<L>>::new();
-            // For every e-class, rule pair try to find matches
-            for eclass_id in self.eg.eclass_ids() {
-                for rule in &self.ruleset {
-                    let subst_set = self.eg.ematch(&rule.pattern, eclass_id, &Subst::new());
-                    if !subst_set.is_empty() {
-                        // We have matches for this rule in this e-class
-                        let rule_match = RuleMatch {
-                            rule: rule.clone(),
-                            eclass: eclass_id,
-                            subst_set: subst_set,
-                        };
-                        matches.push(rule_match);
-                    }
+impl<L, R> Explorer for Egg<L, R>
+where
+    L: OpLang,
+    R: RuleSet<L>,
+{
+    fn run_step(&mut self) -> StopResult {
+        // For every e-class, for every rule, try to find matches
+        let mut matches = Vec::<RuleMatch<L>>::new();
+        for eclass_id in self.eg.eclass_ids() {
+            for rule in self.ruleset.rules() {
+                let subst_set = self.eg.ematch(&rule.pattern, eclass_id, &Subst::new());
+                if !subst_set.is_empty() {
+                    // We have matches for this rule in this e-class
+                    let rule_match = RuleMatch {
+                        rule: rule.clone(),
+                        eclass: eclass_id,
+                        enode: eclass_id, // TODO: Fix later, its really just for stats tracking
+                        subst_set: subst_set,
+                    };
+                    matches.push(rule_match);
                 }
             }
-
-            // Apply all matches
-            for rule_match in matches {
-                for subst in rule_match.subst_set {
-                    // Add the rewritten pattern to the e-graph
-                    let new_id = self.eg.add_match(&rule_match.rule.replacement, &subst);
-                    // Merge the new e-class with the existing one
-                    self.eg.merge(rule_match.eclass, new_id);
-                }
-            }
-
-            // Check if the e-graph was modified
-            // We can stop early if no modifications were made
-            // NOTE: we check this before rebuilding, as rebuilding resets the modified flag
-            if !self.eg.modified {
-                break;
-            }
-
-            // Rebuild the e-graph to maintain invariants
-            self.eg.rebuild();
         }
+
+        // Apply all matches
+        for rule_match in matches {
+            for subst in rule_match.subst_set {
+                // Add the rewritten pattern to the e-graph
+                let new_id = self.eg.add_match(&rule_match.rule.replacement, &subst);
+                // Merge the new e-class with the existing one
+                self.eg.merge(rule_match.eclass, new_id);
+            }
+        }
+
+        if !self.eg.modified {
+            return StopResult::Saturated;
+        }
+
+        // Rebuild the e-graph to maintain invariants
+        self.eg.rebuild();
+
+        StopResult::Continue
+    }
+
+    fn update_stats(&mut self) {
+        // TODO: Implement statistics update logic
     }
 }
 
@@ -170,7 +169,7 @@ mod tests {
     fn egg_add_commutativity_makes_add_terms_equivalent() {
         // Ruleset: commutativity of addition.
         let rules = vec![mk_rule!(Arith, "comm_add", "Add(?a, ?b)", "Add(?b, ?a)")];
-        let mut runner = Runner::<Arith>::new(rules);
+        let mut runner = Egg::<Arith, Vec<Rule<Arith>>>::new(rules);
 
         // Seed the e-graph with a term.
         let root = runner.egraph_mut().add_expr(&add(c(1), c(2)));
@@ -193,7 +192,7 @@ mod tests {
     fn egg_mul_left_identity_discovers_equivalence_to_x() {
         // Ruleset: 1 * x => x
         let rules = vec![mk_rule!(Arith, "mul_one", "Mul(1, ?x)", "?x")];
-        let mut runner = Runner::<Arith>::new(rules);
+        let mut runner = Egg::<Arith, Vec<Rule<Arith>>>::new(rules);
 
         let root = runner.egraph_mut().add_expr(&mul(c(1), add(c(2), c(3))));
 
@@ -228,7 +227,7 @@ mod tests {
                 "Add(Mul(?a, ?b), Mul(?a, ?c))"
             ),
         ];
-        let mut runner = Runner::<Arith>::new(rules);
+        let mut runner = Egg::<Arith, Vec<Rule<Arith>>>::new(rules);
 
         // Seed with expanded form: (2*3) + (2*4)
         let root = runner
@@ -252,7 +251,7 @@ mod tests {
     fn egg_stops_early_when_no_rules_apply() {
         // No-op ruleset; running should not modify the graph.
         let rules: Vec<crate::rule::Rule<Arith>> = vec![];
-        let mut runner = Runner::<Arith>::new(rules);
+        let mut runner = Egg::<Arith, Vec<Rule<Arith>>>::new(rules);
         let _root = runner.egraph_mut().add_expr(&add(c(1), c(2)));
 
         runner.run(10);

@@ -15,6 +15,8 @@ where
     pub id: Id,
     /// The term associated with this ENode.
     pub term: Term<L>,
+    /// Exploration status for this ENode. (Cascades)
+    pub explored: bool,
 }
 
 impl<L> ENode<L>
@@ -23,7 +25,16 @@ where
 {
     /// Create a new ENode with the given id and term.
     pub fn new(id: Id, term: Term<L>) -> Self {
-        ENode { id, term }
+        ENode {
+            id,
+            term,
+            explored: false,
+        }
+    }
+
+    /// Returns a reference to the argument Ids of the ENode's term.
+    pub fn arg_ids(&self) -> &Vec<Id> {
+        self.term.args()
     }
 }
 
@@ -444,6 +455,36 @@ where
         res
     }
 
+    /// Match an expression against a single ENode.
+    /// This is used by Cascades.
+    pub fn ematch_enode(
+        &self,
+        pattern: &Pattern<L>,
+        enode_id: Id,
+        subst: &Subst<Var, Id>,
+    ) -> Vec<Subst<Var, Id>> {
+        let mut res = vec![];
+        if let Some(node) = self.get_enode(&enode_id) {
+            if node.term.matches_pattern(pattern) {
+                // Create list for possible substitution sets
+                let mut subst_list = vec![subst.clone()];
+                // For each argument, ematch the argument expression against the nodes argument eclass
+                // and extend the substitution list with the results
+                for (i, arg) in pattern.args().iter().enumerate() {
+                    let mut nested = vec![];
+                    for subst_in in subst_list.iter() {
+                        let nested_sub = self.ematch(arg, node.term.args()[i], &subst_in);
+                        nested.extend(nested_sub);
+                    }
+                    subst_list = nested;
+                }
+                // Extend the results with the substitutions found
+                res.extend(subst_list);
+            }
+        }
+        res
+    }
+
     /// Merge two EClasses in the EGraph.
     pub fn merge(&mut self, id1: Id, id2: Id) -> Id {
         // Find the canonical representatives of the e-classes containing `id1` and `id2`
@@ -515,6 +556,7 @@ where
     where
         Term<L>: Clone + Eq + Hash + Debug,
     {
+        // FIXME: Make this faster, its gross slow
         self.stats.total_repairs_performed += 1;
         let eclass = self.get_eclass(&id).unwrap().clone();
 
@@ -536,6 +578,7 @@ where
                 // the merge here will add the parent to the worklist
                 let merged_id = self.merge(p_eclass_id, p_id);
                 new_parents.insert(p_node_canonical, merged_id);
+                self.repairs.push(merged_id);
             } else {
                 // Otherwise, we insert the canonicalized term into the new parents map
                 new_parents.insert(p_node_canonical, p_eclass_id);

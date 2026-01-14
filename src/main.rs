@@ -8,8 +8,10 @@ mod types;
 mod unionfind;
 use testlang::QueryOps;
 // mod costlang;
+mod cascades;
 mod egg;
 mod egraph;
+mod explore;
 
 fn main() {
     // Create a ruleset
