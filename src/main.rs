@@ -1,17 +1,5 @@
-// mod multegraph;
-mod parser;
-// mod property;
-// mod propertymap;
-mod rule;
-mod testlang;
-mod types;
-mod unionfind;
-use testlang::QueryOps;
-// mod costlang;
-mod cascades;
-mod egg;
-mod egraph;
-mod explore;
+use crate::testlang::QueryOps;
+use optimizer::*;
 
 fn main() {
     // Create a ruleset
