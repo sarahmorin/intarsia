@@ -17,6 +17,8 @@ cranelift-isle = { version = "0.128.1", features = [
     "logging",
 ] }
 egg = "0.11.0"
+indexmap = "2.13.0"
+log = "0.4.29"
 
 [patch.crates-io]
 egg = { path = "../egg" }
