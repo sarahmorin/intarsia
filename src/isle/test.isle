@@ -1,0 +1,49 @@
+;; Dummy test file to check my new recursion idea
+
+;; Id type to interact with e-graph
+(type Id (primitive Id))
+
+;; Raw integer value
+(decl multi int_val (i64) Id)
+(extern extractor int_val e_int_val)
+(extern constructor int_val c_int_val)
+
+;; Dummy operation
+(decl multi dummy_op (Id Id) Id)
+(extern extractor dummy_op e_dummy_op)
+(extern constructor dummy_op c_dummy_op)
+
+;; Optimization Entry Point
+(decl multi opt (Id) Id)
+
+;; Rewrite Rules for Dummy Operation
+;; Commutativity
+(rule
+    (opt (dummy_op x y))
+    (dummy_op y x)
+)
+
+;; Associativity
+(rule
+    (opt (dummy_op x (dummy_op y z)))
+    (dummy_op (dummy_op x y) z)
+)
+
+;; Simplification
+(rule
+    (opt (dummy_op x (int_val 0)))
+    x
+)
+
+;; Wraps opt to handling merging Ids, given one Id return its canonical form
+(decl run (Id) Id)
+(extern extractor run r_run)
+(extern constructor run c_run)
+
+
+;; Testing entrypoint main
+;; 1 + (2 + 1)
+(decl multi main () Id)
+(rule 
+    (main)
+    (run (dummy_op (int_val 1) (dummy_op (int_val 2) (int_val 0)))))
