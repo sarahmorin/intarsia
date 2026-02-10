@@ -1,3 +1,8 @@
+mod catalog;
+mod context;
+mod test_context;
+mod types;
+
 fn main() {
-    println!("Hello, world!");
+    test_context::run_test_context();
 }
