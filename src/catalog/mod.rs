@@ -12,7 +12,7 @@ use crate::types::{ColumnId, DataType, IndexId, TableId};
 use indexmap::IndexMap;
 
 /// The Catalog struct is the main entry point for managing database metadata. It provides methods for creating tables, adding columns, and managing indexes.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Catalog {
     // Map table name to ID
     pub table_ids: IndexMap<String, TableId>,
@@ -119,8 +119,16 @@ impl Catalog {
         self.table_ids.keys().cloned().collect()
     }
 
+    pub fn table_ids(&self) -> Vec<TableId> {
+        self.table_ids.values().cloned().collect()
+    }
+
     pub fn list_indexes(&self) -> Vec<String> {
         self.index_ids.keys().cloned().collect()
+    }
+
+    pub fn index_ids(&self) -> Vec<IndexId> {
+        self.index_ids.values().cloned().collect()
     }
 
     /// Get a reference to a table by its name. Returns None if the table does not exist.

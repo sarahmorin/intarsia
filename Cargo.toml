@@ -11,6 +11,7 @@ cranelift-isle = { version = "0.128.1", features = [
 ] }
 
 [dependencies]
+bimap = "0.6.3"
 cranelift-isle = { version = "0.128.1", features = [
     "fancy-errors",
     "log",
