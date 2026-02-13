@@ -1,4 +1,4 @@
-;; ==============================================
+;ean ==============================================
 ;; Query Optimizer Rule Module
 ;; ==============================================
 
@@ -18,22 +18,36 @@
     (Bool (val bool))
 ))
 
-;; Define source type representing different database objects
-;; We will pre-load the existing tables, columns, and indices from the database schema into the e-graph.
-(type source (enum 
-    (Table (table Id))
-    (TableCols (cols Id))
-    (Index (index Id))
-))
-
-(decl pure partial combine_columns (Id Id) Id)
-(extern constructor combine_columns constructor_combine_columns)
-(extern extractor combine_columns extractor_combine_columns)
-
 ;; Constant Value Terms
 (decl pure const_val (value) Id)
 (extern constructor const_val constructor_const_val)
 (extern extractor const_val extractor_const_val)
+
+;; Define source type representing different database objects
+;; We will pre-load the existing tables, columns, and indices from the database schema into the e-graph.
+(type TableId (primitive usize))
+(type IndexId (primitive usize))
+(type ColSetId (primitive usize))
+
+;; Access Terms - represent logical access to a source (table, index)
+;; partial - If a table doesn't exist, we can't access it so the constructor can fail. Similarly for indices.
+(decl pure partial table (TableId) Id)
+(extern constructor table constructor_access_table)
+(extern extractor table extractor_access_table)
+
+(decl pure partial index (IndexId) Id)
+(extern constructor index constructor_access_index)
+(extern extractor index extractor_access_index)
+
+;; Column Set Terms - represent sets of columns, used for projection and join predicates
+(decl pure partial colset (ColSetId) Id)
+(extern constructor colset constructor_ref_colset)
+(extern extractor colset extractor_ref_colset)
+
+;; combine_columns - represents the combination of two column sets, used for pushdown through projections and joins
+(decl pure partial combine_columns (ColSetId ColSetId) ColSetId)
+(extern constructor combine_columns constructor_combine_columns)
+(extern extractor combine_columns extractor_combine_columns)
 
 ;; ==============================================
 ;; Basic Arithmetic Operations
@@ -131,8 +145,8 @@
 (extern constructor join constructor_join)
 (extern extractor join extractor_join)
 
-;; Scan 
-(decl multi scan (source) Id)
+;; Scan
+(decl multi scan (Id) Id)
 (extern constructor scan constructor_scan)
 (extern extractor scan extractor_scan)
 
@@ -141,12 +155,12 @@
 ;; ----------------------------------------------
 
 ;; Table Scan
-(decl multi table_scan (Id) Id)
+(decl table_scan (Id) Id)
 (extern constructor table_scan constructor_table_scan)
 (extern extractor table_scan extractor_table_scan)
 
 ;; Index Scan
-(decl multi index_scan (Id) Id)
+(decl index_scan (Id) Id)
 (extern constructor index_scan constructor_index_scan)
 (extern extractor index_scan extractor_index_scan)
 
@@ -193,7 +207,7 @@
 ;; Rule: Associativity of Addition
 (rule 
     (explore (add x (add y z)))
-    (add x (add y z))
+    (add (add x y) z)
 )
 
 ;; Rule: Commutativity of Multiplication
@@ -380,6 +394,7 @@
 ;; Relational Algebra Rules
 ;; ----------------------------------------------
 ;; Rule: Push Selection through Projection
+;; FIXME: This is a simplified version; real implementation would need to analyze predicates
 (rule 
     (explore (select (project cols source) pred_sel))
     (project cols (select source pred_sel))
@@ -400,8 +415,8 @@
 
 ;; Rule: Combine Consecutive Projections
 (rule 
-    (explore (project cols2 (project cols1 source)))
-    (if-let cols_combined (combine_columns cols1 cols2))
+    (explore (project (colset colset2) (project (colset colset1) source)))
+    (if-let cols_combined (colset (combine_columns colset1 colset2)))
     (project cols_combined source)
 )
 
@@ -411,13 +426,15 @@
 
 ;; Rule: Logical Scan to Table Scan
 (rule 
-    (optimize (scan (source.Table table)))
+    (optimize (scan (table table_id)))
+    (if-let table (table table_id))
     (table_scan table)
 )
 
 ;; Rule: Logical Scan to Index Scan
 (rule 
-    (optimize (scan (source.Index index)))
+    (optimize (scan (index index_id)))
+    (if-let index (index index_id))
     (index_scan index)
 )
 
