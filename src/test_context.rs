@@ -59,9 +59,9 @@ impl TestContext {
 impl Context for TestContext {
     type e_int_val_returns = ContextIterWrapper<ConstructorVec<i64>, Self>;
     fn e_int_val(&mut self, arg0: Id, returns: &mut Self::e_int_val_returns) -> () {
-        // Exract all integer values in the given e-class
+        // Extract all integer values in the given e-class
         // Since these are terminal, we dont need to call runner here
-        for node in self.egraph.nodes_in_class(arg0) {
+        for (_, node) in self.egraph.nodes_in_class(arg0) {
             if let testlang::Int(val) = node {
                 returns.extend(Some(*val));
                 if returns.len() >= MAX_ISLE_RETURNS {
@@ -88,9 +88,9 @@ impl Context for TestContext {
     fn e_dummy_op(&mut self, arg0: Id, returns: &mut Self::e_dummy_op_returns) -> () {
         // Extract all DummyOp operations in the given e-class
         let mut to_run = Vec::new();
-        for node in self.egraph.nodes_in_class(arg0).cloned() {
+        for (_, node) in self.egraph.nodes_in_class(arg0) {
             if let testlang::DummyOp([lhs, rhs]) = node {
-                to_run.push((lhs, rhs));
+                to_run.push((*lhs, *rhs));
             }
         }
 

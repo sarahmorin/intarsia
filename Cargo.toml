@@ -21,5 +21,8 @@ egg = "0.11.0"
 indexmap = "2.13.0"
 log = "0.4.29"
 
+[dev-dependencies]
+env_logger = "0.11"
+
 [patch.crates-io]
 egg = { path = "../egg" }
