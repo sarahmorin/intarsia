@@ -130,19 +130,27 @@ impl CostFunction<Optlang> for OptimizerContext {
             // Constant values have a cost of 0
             Optlang::Int(_) | Optlang::Bool(_) | Optlang::Str(_) => (0, SimpleProperty::Irrelevant),
             // CPU operations have a cost of 1
-            Optlang::Add(_)
-            | Optlang::Sub(_)
-            | Optlang::Mul(_)
-            | Optlang::Div(_)
-            | Optlang::Eq(_)
-            | Optlang::Lt(_)
-            | Optlang::Gt(_)
-            | Optlang::Le(_)
-            | Optlang::Ge(_)
-            | Optlang::Ne(_)
-            | Optlang::And(_)
-            | Optlang::Or(_)
-            | Optlang::Not(_) => (1, SimpleProperty::Irrelevant),
+            Optlang::Add([x, y])
+            | Optlang::Sub([x, y])
+            | Optlang::Mul([x, y])
+            | Optlang::Div([x, y])
+            | Optlang::Eq([x, y])
+            | Optlang::Lt([x, y])
+            | Optlang::Gt([x, y])
+            | Optlang::Le([x, y])
+            | Optlang::Ge([x, y])
+            | Optlang::Ne([x, y])
+            | Optlang::And([x, y])
+            | Optlang::Or([x, y]) => (
+                1usize
+                    .saturating_add(costs(*x).0)
+                    .saturating_add(costs(*y).0),
+                SimpleProperty::Irrelevant,
+            ),
+            Optlang::Not(x) => (
+                1usize.saturating_add(costs(*x).0),
+                SimpleProperty::Irrelevant,
+            ),
             // Data sources have a cost of 0 but different properties
             Optlang::Table(_) => (0, SimpleProperty::Unsorted),
             Optlang::ColSet(_) => (0, SimpleProperty::Irrelevant),
@@ -152,14 +160,24 @@ impl CostFunction<Optlang> for OptimizerContext {
             Optlang::Select([source, pred]) => {
                 let (source_cost, source_prop) = costs(*source);
                 let (pred_cost, _) = costs(*pred);
-                (source_cost + pred_cost + FILTER_COST, source_prop) // The output of a filter is as sorted as its input
+                (
+                    source_cost
+                        .saturating_add(pred_cost)
+                        .saturating_add(FILTER_COST),
+                    source_prop,
+                ) // The output of a filter is as sorted as its input
             }
             // Projection
             // FIXME: Eventually these will be cost 0 and have physical implementation operators instead
             Optlang::Project([cols, source]) => {
                 let (cols_cost, _) = costs(*cols);
                 let (source_cost, source_prop) = costs(*source);
-                (cols_cost + source_cost + PROJECT_COST, source_prop) // The output of a project is as sorted as its input
+                (
+                    cols_cost
+                        .saturating_add(source_cost)
+                        .saturating_add(PROJECT_COST),
+                    source_prop,
+                ) // The output of a project is as sorted as its input
             }
             // Logical Operators have a cost of usize::MAX to prevent extraction
             Optlang::Join(_) | Optlang::Scan(_) => (usize::MAX, SimpleProperty::Irrelevant),
@@ -169,7 +187,10 @@ impl CostFunction<Optlang> for OptimizerContext {
                 let (right_cost, right_prop) = costs(*right);
                 let (pred_cost, _) = costs(*pred);
                 // Cost of the nested loop join is left x right + the cost of the predicate evaluation
-                let cost = left_cost * right_cost + pred_cost + JOIN_COST;
+                let cost = left_cost
+                    .saturating_mul(right_cost)
+                    .saturating_add(pred_cost)
+                    .saturating_add(JOIN_COST);
                 let prop = if left_prop == SimpleProperty::Sorted
                     && right_prop == SimpleProperty::Sorted
                 {
@@ -184,7 +205,13 @@ impl CostFunction<Optlang> for OptimizerContext {
                 let (left_cost, left_prop) = costs(*left);
                 let (right_cost, right_prop) = costs(*right);
                 let (pred_cost, _) = costs(*pred);
-                todo!("Finish")
+                // Hash join cost is O(n + m) - build hash table on left, probe with right
+                let cost = left_cost
+                    .saturating_add(right_cost)
+                    .saturating_add(pred_cost)
+                    .saturating_add(JOIN_COST);
+                // Hash join doesn't preserve order
+                (cost, SimpleProperty::Unsorted)
             }
             // MergeJoin
             Optlang::MergeJoin([left, right, pred]) => {
@@ -193,7 +220,10 @@ impl CostFunction<Optlang> for OptimizerContext {
                 let (pred_cost, _) = costs(*pred);
                 if left_prop == SimpleProperty::Sorted && right_prop == SimpleProperty::Sorted {
                     (
-                        left_cost + right_cost + pred_cost + JOIN_COST,
+                        left_cost
+                            .saturating_add(right_cost)
+                            .saturating_add(pred_cost)
+                            .saturating_add(JOIN_COST),
                         SimpleProperty::Sorted,
                     )
                 } else {
@@ -210,7 +240,12 @@ impl CostFunction<Optlang> for OptimizerContext {
                 }
                 let (cols_cost, _) = costs(*cols);
 
-                (source_cost + cols_cost + SORT_COST, SimpleProperty::Sorted) // The output of a sort is always sorted
+                (
+                    source_cost
+                        .saturating_add(cols_cost)
+                        .saturating_add(SORT_COST),
+                    SimpleProperty::Sorted,
+                ) // The output of a sort is always sorted
             }
             // TableScan
             Optlang::TableScan(arg_id) => {
@@ -1056,9 +1091,14 @@ impl OptimizerContext {
     }
 
     pub fn extract(self, id: Id) -> RecExpr<Optlang> {
-        let extractor = Extractor::new(&self.egraph, self.clone());
-        let (best_cost, best_expr) = extractor.find_best(id);
+        let (best_cost, best_expr) = self.extract_with_cost(id);
         best_expr
+    }
+
+    pub fn extract_with_cost(self, id: Id) -> (usize, RecExpr<Optlang>) {
+        let extractor = Extractor::new(&self.egraph, self.clone());
+        let ((cost, props), expr) = extractor.find_best(id);
+        (cost, expr)
     }
 }
 
@@ -1464,7 +1504,7 @@ mod tests {
         // Create a TableScan expression programmatically
         // Note: We can't use the parser because it can't distinguish between Int(1) and Table(1)
         let expr = make_table_scan_expr(table_id);
-        
+
         println!("Initial expression: {}", expr);
         let id = ctx.init(expr);
 
@@ -1515,5 +1555,1269 @@ mod tests {
 
         assert_eq!(result1.to_string(), "(+ 1 2)");
         assert_eq!(result2.to_string(), "(* 3 4)");
+    }
+
+    // ==================== Cost Function Tests ====================
+
+    #[test]
+    fn test_cost_arithmetic_simple() {
+        init_logger();
+        let catalog = Catalog::new();
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create a simple arithmetic expression: 1 + 2
+        // Cost should be: 1 (for +) + 0 (for 1) + 0 (for 2) = 1
+        let expr: RecExpr<Optlang> = "(+ 1 2)".parse().unwrap();
+        let id = ctx.egraph.add_expr(&expr);
+
+        let (cost, result) = ctx.extract_with_cost(id);
+
+        assert_eq!(cost, 1, "Cost of (+ 1 2) should be 1");
+        assert_eq!(result.to_string(), "(+ 1 2)");
+    }
+
+    #[test]
+    fn test_cost_arithmetic_nested() {
+        init_logger();
+        let catalog = Catalog::new();
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create: (1 + 2) * 3
+        // Cost should be: 1 (* op) + 1 (+ op) + 0 (constants) = 2
+        let expr: RecExpr<Optlang> = "(* (+ 1 2) 3)".parse().unwrap();
+        let id = ctx.egraph.add_expr(&expr);
+
+        let (cost, result) = ctx.extract_with_cost(id);
+
+        assert_eq!(cost, 2, "Cost of (* (+ 1 2) 3) should be 2");
+        assert_eq!(result.to_string(), "(* (+ 1 2) 3)");
+    }
+
+    #[test]
+    fn test_cost_arithmetic_complex() {
+        init_logger();
+        let catalog = Catalog::new();
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create: ((1 + 2) * (3 - 4)) / 5
+        // Cost: 1 (/) + 1 (*) + 1 (+) + 1 (-) + 0 (constants) = 4
+        let expr: RecExpr<Optlang> = "(/ (* (+ 1 2) (- 3 4)) 5)".parse().unwrap();
+        let id = ctx.egraph.add_expr(&expr);
+
+        let (cost, result) = ctx.extract_with_cost(id);
+
+        assert_eq!(cost, 4, "Cost should be 4 (4 operators)");
+        assert_eq!(result.to_string(), "(/ (* (+ 1 2) (- 3 4)) 5)");
+    }
+
+    #[test]
+    fn test_cost_comparison_operations() {
+        init_logger();
+        let catalog = Catalog::new();
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create: (a > 5) AND (b < 10)
+        // Cost: 1 (AND) + 1 (>) + 1 (<) + 0 (constants) = 3
+        let expr: RecExpr<Optlang> = "(AND (> 10 5) (< 3 10))".parse().unwrap();
+        let id = ctx.egraph.add_expr(&expr);
+
+        let (cost, result) = ctx.extract_with_cost(id);
+
+        assert_eq!(cost, 3, "Cost should be 3 (AND + > + <)");
+    }
+
+    #[test]
+    fn test_cost_with_catalog_table_sizes() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create tables with different sizes
+        let small_table_id = catalog
+            .create_table_with_cols(
+                "small_table".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let large_table_id = catalog
+            .create_table_with_cols(
+                "large_table".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        // Set table sizes
+        catalog
+            .get_table_by_id(small_table_id)
+            .unwrap()
+            .clone()
+            .set_est_num_rows(100);
+        catalog
+            .tables
+            .get_mut(&small_table_id)
+            .unwrap()
+            .set_est_num_rows(100);
+
+        catalog
+            .tables
+            .get_mut(&large_table_id)
+            .unwrap()
+            .set_est_num_rows(10000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create TableScan for small table
+        let small_scan = make_table_scan_expr(small_table_id);
+        let small_id = ctx.egraph.add_expr(&small_scan);
+
+        let (small_cost, _) = ctx.clone().extract_with_cost(small_id);
+        assert_eq!(small_cost, 100, "Small table scan cost should be 100");
+
+        // Create TableScan for large table
+        let large_scan = make_table_scan_expr(large_table_id);
+        let large_id = ctx.egraph.add_expr(&large_scan);
+
+        let (large_cost, _) = ctx.extract_with_cost(large_id);
+        assert_eq!(large_cost, 10000, "Large table scan cost should be 10000");
+    }
+
+    #[test]
+    fn test_cost_chooses_cheaper_equivalent() {
+        init_logger();
+        let catalog = Catalog::new();
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create two equivalent expressions with different costs
+        // Expression 1: (1 + 2) + 3 = cost 2 (two + operators)
+        let expr1: RecExpr<Optlang> = "(+ (+ 1 2) 3)".parse().unwrap();
+        let id1 = ctx.egraph.add_expr(&expr1);
+
+        // Expression 2: 1 + (2 + 3) = cost 2 (two + operators)
+        let expr2: RecExpr<Optlang> = "(+ 1 (+ 2 3))".parse().unwrap();
+        let id2 = ctx.egraph.add_expr(&expr2);
+
+        // Union them to make them equivalent
+        ctx.egraph.union(id1, id2);
+        ctx.egraph.rebuild();
+
+        // Extract should return one of them (both have same cost)
+        let (cost, result) = ctx.extract_with_cost(id1);
+        assert_eq!(cost, 2, "Cost should be 2 for either expression");
+
+        // Result should be one of the two forms
+        let result_str = result.to_string();
+        assert!(
+            result_str == "(+ (+ 1 2) 3)" || result_str == "(+ 1 (+ 2 3))",
+            "Result should be one of the equivalent forms"
+        );
+    }
+
+    #[test]
+    fn test_cost_prefers_cheaper_when_different() {
+        init_logger();
+        let catalog = Catalog::new();
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create two expressions with significantly different costs
+        // Cheap: 1 + 2 = cost 1
+        let cheap_expr: RecExpr<Optlang> = "(+ 1 2)".parse().unwrap();
+        let cheap_id = ctx.egraph.add_expr(&cheap_expr);
+
+        // Expensive: ((1 + 2) * (3 - 4)) / 5 = cost 4
+        let expensive_expr: RecExpr<Optlang> = "(/ (* (+ 1 2) (- 3 4)) 5)".parse().unwrap();
+        let expensive_id = ctx.egraph.add_expr(&expensive_expr);
+
+        // Union them (pretending they're equivalent for testing purposes)
+        ctx.egraph.union(cheap_id, expensive_id);
+        ctx.egraph.rebuild();
+
+        // Extract should choose the cheaper one
+        let (cost, result) = ctx.extract_with_cost(cheap_id);
+        assert_eq!(cost, 1, "Should choose cheaper expression with cost 1");
+        assert_eq!(
+            result.to_string(),
+            "(+ 1 2)",
+            "Should extract the cheaper expression"
+        );
+    }
+
+    #[test]
+    fn test_cost_index_scan_vs_table_scan() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create a table
+        let table_id = catalog
+            .create_table_with_cols(
+                "users".to_string(),
+                vec![
+                    ("id".to_string(), DataType::Int),
+                    ("name".to_string(), DataType::String),
+                ],
+            )
+            .unwrap();
+
+        // Create an index on the table
+        let index_id = catalog
+            .create_table_index(
+                Some("idx_users_id".to_string()),
+                "users".to_string(),
+                vec!["id".to_string()],
+            )
+            .unwrap();
+
+        // Set table size
+        catalog
+            .tables
+            .get_mut(&table_id)
+            .unwrap()
+            .set_est_num_rows(1000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create TableScan
+        let table_scan = make_table_scan_expr(table_id);
+        let table_scan_id = ctx.egraph.add_expr(&table_scan);
+
+        // Create IndexScan
+        let index_scan = make_index_scan_expr(index_id);
+        let index_scan_id = ctx.egraph.add_expr(&index_scan);
+
+        // Both should have same cost (table size) but different properties
+        let (table_cost, _) = ctx.clone().extract_with_cost(table_scan_id);
+        let (index_cost, _) = ctx.extract_with_cost(index_scan_id);
+
+        assert_eq!(table_cost, 1000, "TableScan cost should match table size");
+        assert_eq!(
+            index_cost, 1000,
+            "IndexScan cost should also match table size"
+        );
+    }
+
+    #[test]
+    fn test_cost_sort_optimization() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create a table and index
+        let table_id = catalog
+            .create_table_with_cols(
+                "data".to_string(),
+                vec![("value".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let index_id = catalog
+            .create_table_index(None, "data".to_string(), vec!["value".to_string()])
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&table_id)
+            .unwrap()
+            .set_est_num_rows(500);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create: SORT(TABLE_SCAN(table)) - unsorted input needs sorting
+        let table_scan = make_table_scan_expr(table_id);
+        let table_scan_id = ctx.egraph.add_expr(&table_scan);
+
+        let mut sort_table_expr = RecExpr::default();
+        let colset_id = sort_table_expr.add(Optlang::ColSet(1)); // Dummy colset
+        let table_ref = sort_table_expr.add(Optlang::Table(table_id));
+        let scan_node = sort_table_expr.add(Optlang::TableScan(table_ref));
+        sort_table_expr.add(Optlang::Sort([scan_node, colset_id]));
+
+        let sort_table_id = ctx.egraph.add_expr(&sort_table_expr);
+
+        // Cost: 500 (table scan) + 0 (colset) + 50 (sort) = 550
+        let (sort_table_cost, _) = ctx.clone().extract_with_cost(sort_table_id);
+        assert_eq!(
+            sort_table_cost, 550,
+            "Sorting unsorted table should cost 550"
+        );
+
+        // Create: SORT(INDEX_SCAN(index)) - already sorted, sort is free
+        let mut sort_index_expr = RecExpr::default();
+        let colset_id2 = sort_index_expr.add(Optlang::ColSet(1));
+        let index_ref = sort_index_expr.add(Optlang::Index(index_id));
+        let index_scan_node = sort_index_expr.add(Optlang::IndexScan(index_ref));
+        sort_index_expr.add(Optlang::Sort([index_scan_node, colset_id2]));
+
+        let sort_index_id = ctx.egraph.add_expr(&sort_index_expr);
+
+        // Cost: 500 (index scan) + 0 (colset) + 0 (sort skipped) = 500
+        let (sort_index_cost, _) = ctx.extract_with_cost(sort_index_id);
+        assert_eq!(
+            sort_index_cost, 500,
+            "Sorting already-sorted index should cost 500 (no sort)"
+        );
+    }
+
+    #[test]
+    fn test_cost_merge_join_requires_sorted_inputs() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        let table1_id = catalog
+            .create_table_with_cols(
+                "table1".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let table2_id = catalog
+            .create_table_with_cols(
+                "table2".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let index1_id = catalog
+            .create_table_index(None, "table1".to_string(), vec!["id".to_string()])
+            .unwrap();
+
+        let index2_id = catalog
+            .create_table_index(None, "table2".to_string(), vec!["id".to_string()])
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&table1_id)
+            .unwrap()
+            .set_est_num_rows(100);
+        catalog
+            .tables
+            .get_mut(&table2_id)
+            .unwrap()
+            .set_est_num_rows(200);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Create MERGE_JOIN with unsorted inputs (table scans) - should be expensive
+        let mut unsorted_merge = RecExpr::default();
+        let t1 = unsorted_merge.add(Optlang::Table(table1_id));
+        let scan1 = unsorted_merge.add(Optlang::TableScan(t1));
+        let t2 = unsorted_merge.add(Optlang::Table(table2_id));
+        let scan2 = unsorted_merge.add(Optlang::TableScan(t2));
+        let pred = unsorted_merge.add(Optlang::Bool(true));
+        unsorted_merge.add(Optlang::MergeJoin([scan1, scan2, pred]));
+
+        let unsorted_id = ctx.egraph.add_expr(&unsorted_merge);
+        let (unsorted_cost, _) = ctx.clone().extract_with_cost(unsorted_id);
+
+        // Should be usize::MAX because inputs aren't sorted
+        assert_eq!(
+            unsorted_cost,
+            usize::MAX,
+            "MergeJoin with unsorted inputs should have MAX cost"
+        );
+
+        // Create MERGE_JOIN with sorted inputs (index scans) - should be reasonable
+        let mut sorted_merge = RecExpr::default();
+        let i1 = sorted_merge.add(Optlang::Index(index1_id));
+        let iscan1 = sorted_merge.add(Optlang::IndexScan(i1));
+        let i2 = sorted_merge.add(Optlang::Index(index2_id));
+        let iscan2 = sorted_merge.add(Optlang::IndexScan(i2));
+        let pred2 = sorted_merge.add(Optlang::Bool(true));
+        sorted_merge.add(Optlang::MergeJoin([iscan1, iscan2, pred2]));
+
+        let sorted_id = ctx.egraph.add_expr(&sorted_merge);
+        let (sorted_cost, _) = ctx.extract_with_cost(sorted_id);
+
+        // Cost: 100 (scan1) + 200 (scan2) + 0 (pred) + 100 (join) = 400
+        assert_eq!(
+            sorted_cost, 400,
+            "MergeJoin with sorted inputs should cost 400"
+        );
+    }
+
+    // ==================== Full Optimizer Workflow Tests ====================
+
+    #[test]
+    fn test_selection_pushdown_through_join() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create two tables
+        let customers_id = catalog
+            .create_table_with_cols(
+                "customers".to_string(),
+                vec![
+                    ("id".to_string(), DataType::Int),
+                    ("name".to_string(), DataType::String),
+                    ("age".to_string(), DataType::Int),
+                ],
+            )
+            .unwrap();
+
+        let orders_id = catalog
+            .create_table_with_cols(
+                "orders".to_string(),
+                vec![
+                    ("id".to_string(), DataType::Int),
+                    ("customer_id".to_string(), DataType::Int),
+                    ("amount".to_string(), DataType::Int),
+                ],
+            )
+            .unwrap();
+
+        // Set table sizes - customers is much smaller
+        catalog
+            .tables
+            .get_mut(&customers_id)
+            .unwrap()
+            .set_est_num_rows(1000);
+        catalog
+            .tables
+            .get_mut(&orders_id)
+            .unwrap()
+            .set_est_num_rows(10000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build initial (unoptimized) expression:
+        // SELECT(JOIN(customers, orders), age > 30)
+        // This applies the filter AFTER the join (expensive!)
+        let mut initial_expr = RecExpr::default();
+
+        // Create scans
+        let cust_table = initial_expr.add(Optlang::Table(customers_id));
+        let cust_scan = initial_expr.add(Optlang::Scan(cust_table));
+
+        let orders_table = initial_expr.add(Optlang::Table(orders_id));
+        let orders_scan = initial_expr.add(Optlang::Scan(orders_table));
+
+        // Join predicate (simplified - just true for this test)
+        let join_pred = initial_expr.add(Optlang::Bool(true));
+
+        // Join the tables
+        let join_node = initial_expr.add(Optlang::Join([cust_scan, orders_scan, join_pred]));
+
+        // Selection predicate: age > 30
+        let age_val = initial_expr.add(Optlang::Int(30));
+        let age_ref = initial_expr.add(Optlang::Int(0)); // Simplified column reference
+        let select_pred = initial_expr.add(Optlang::Gt([age_ref, age_val]));
+
+        // Apply selection after join (unoptimized!)
+        initial_expr.add(Optlang::Select([join_node, select_pred]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+
+        // Get initial cost
+        let (initial_cost, initial_result) = ctx.clone().extract_with_cost(root_id);
+        debug!("Initial expression: {}", initial_result);
+        debug!("Initial cost: {}", initial_cost);
+
+        // Run optimizer to explore equivalent expressions
+        ctx.run(root_id);
+
+        // Extract the best plan
+        let (optimized_cost, optimized_result) = ctx.extract_with_cost(root_id);
+        debug!("Optimized expression: {}", optimized_result);
+        debug!("Optimized cost: {}", optimized_cost);
+
+        // The optimized plan should have equal or lower cost
+        assert!(
+            optimized_cost <= initial_cost,
+            "Optimized cost {} should be <= initial cost {}",
+            optimized_cost,
+            initial_cost
+        );
+
+        let optimized_str = optimized_result.to_string();
+        debug!("Complete optimized plan: {}", optimized_str);
+
+        // EXPECTED STRUCTURE:
+        // Initial:  SELECT(JOIN(SCAN(customers), SCAN(orders)), age > 30)
+        // Expected: PHYSICAL_JOIN(SELECT(TABLE_SCAN(customers), age > 30), TABLE_SCAN(orders), pred)
+        //
+        // The selection should be pushed down INSIDE the join, not wrapping it
+
+        // 1. Must use physical join
+        assert!(
+            optimized_str.contains("HASH_JOIN")
+                || optimized_str.contains("NESTED_LOOP_JOIN")
+                || optimized_str.contains("MERGE_JOIN"),
+            "Expected physical join, got: {}",
+            optimized_str
+        );
+
+        // 2. Must use physical scans, not logical SCAN
+        assert!(
+            optimized_str.contains("TABLE_SCAN"),
+            "Expected TABLE_SCAN, got: {}",
+            optimized_str
+        );
+
+        // 3. Must NOT contain logical operators
+        assert!(
+            !optimized_str.contains("(SCAN ") && !optimized_str.contains("(JOIN "),
+            "Expected no logical operators, got: {}",
+            optimized_str
+        );
+
+        // 4. Check if selection was pushed down
+        // If SELECT appears BEFORE the first JOIN, it wasn't pushed down
+        if let Some(select_pos) = optimized_str.find("SELECT") {
+            if let Some(join_pos) = optimized_str.find("JOIN") {
+                assert!(
+                    select_pos > join_pos,
+                    "FAILED: SelectionSELECT was NOT pushed down through join.\\n\\\n                     Expected: PHYSICAL_JOIN(SELECT(TABLE_SCAN(...), pred), ...)\\n\\\n                     Got:      SELECT(PHYSICAL_JOIN(...), pred)\\n\\\n                     Plan: {}",
+                    optimized_str
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_selection_pushdown_through_projection() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        let table_id = catalog
+            .create_table_with_cols(
+                "employees".to_string(),
+                vec![
+                    ("id".to_string(), DataType::Int),
+                    ("name".to_string(), DataType::String),
+                    ("salary".to_string(), DataType::Int),
+                    ("department".to_string(), DataType::String),
+                ],
+            )
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&table_id)
+            .unwrap()
+            .set_est_num_rows(5000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build: SELECT(PROJECT(columns, scan), salary > 50000)
+        // Optimizer should push selection before projection
+        let mut initial_expr = RecExpr::default();
+
+        let table = initial_expr.add(Optlang::Table(table_id));
+        let scan = initial_expr.add(Optlang::Scan(table));
+
+        // Project to subset of columns
+        let colset = initial_expr.add(Optlang::ColSet(1)); // Simplified
+        let project = initial_expr.add(Optlang::Project([colset, scan]));
+
+        // Selection: salary > 50000
+        let salary_val = initial_expr.add(Optlang::Int(50000));
+        let salary_ref = initial_expr.add(Optlang::Int(2)); // Column 2 = salary
+        let predicate = initial_expr.add(Optlang::Gt([salary_ref, salary_val]));
+
+        initial_expr.add(Optlang::Select([project, predicate]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+        let (initial_cost, initial_best) = ctx.clone().extract_with_cost(root_id);
+
+        // Run optimizer
+        ctx.run(root_id);
+
+        let (optimized_cost, optimized_result) = ctx.extract_with_cost(root_id);
+        debug!(
+            "Initial cost: {}, Optimized cost: {}",
+            initial_cost, optimized_cost
+        );
+        debug!("Initial plan: {}", initial_best);
+        debug!("Optimized plan: {}", optimized_result);
+
+        // Optimized should be equal or better
+        assert!(
+            optimized_cost <= initial_cost,
+            "Optimized cost {} should be <= initial cost {}",
+            optimized_cost,
+            initial_cost
+        );
+
+        let optimized_str = optimized_result.to_string();
+        let initial_str = initial_best.to_string();
+        debug!("Initial plan:    {}", initial_str);
+        debug!("Optimized plan:  {}", optimized_str);
+
+        // EXPECTED STRUCTURE:
+        // Initial:  SELECT(PROJECT(cols, SCAN(table)), salary > 50000)
+        // Expected: PROJECT(cols, SELECT(TABLE_SCAN(table), salary > 50000))
+        //
+        // The selection should be pushed down INSIDE the projection
+
+        // 1. PROJECT should be the outermost operator
+        assert!(
+            optimized_str.starts_with("(PROJECT"),
+            "FAILED: PROJECT should be outermost operator.\\n\\\n             Expected: (PROJECT ... (SELECT ...))\\n\\\n             Got:      {}\\n\\\n             Selection was NOT pushed through projection!",
+            optimized_str
+        );
+
+        // 2. SELECT should be nested inside PROJECT
+        let project_pos = optimized_str.find("PROJECT").unwrap();
+        let select_pos = optimized_str.find("SELECT");
+
+        assert!(
+            select_pos.is_some(),
+            "FAILED: SELECT missing from plan. Got: {}",
+            optimized_str
+        );
+
+        assert!(
+            project_pos < select_pos.unwrap(),
+            "FAILED: SELECT should be nested inside PROJECT.\\n\\\n             Expected: (PROJECT cols (SELECT (TABLE_SCAN) pred))\\n\\\n             Got:      {}\\n\\\n             Selection was NOT pushed through projection!",
+            optimized_str
+        );
+
+        // 3. Must use physical scan
+        assert!(
+            optimized_str.contains("TABLE_SCAN"),
+            "Expected TABLE_SCAN, got: {}",
+            optimized_str
+        );
+
+        // 4. Must NOT have logical SCAN
+        assert!(
+            !optimized_str.contains("(SCAN "),
+            "Expected no logical SCAN, got: {}",
+            optimized_str
+        );
+    }
+
+    #[test]
+    fn test_combine_consecutive_selections() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        let table_id = catalog
+            .create_table_with_cols(
+                "products".to_string(),
+                vec![
+                    ("id".to_string(), DataType::Int),
+                    ("price".to_string(), DataType::Int),
+                    ("quantity".to_string(), DataType::Int),
+                ],
+            )
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&table_id)
+            .unwrap()
+            .set_est_num_rows(2000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build: SELECT(SELECT(scan, price > 100), quantity > 10)
+        // Should be combined into: SELECT(scan, price > 100 AND quantity > 10)
+        let mut initial_expr = RecExpr::default();
+
+        let table = initial_expr.add(Optlang::Table(table_id));
+        let scan = initial_expr.add(Optlang::Scan(table));
+
+        // First selection: price > 100
+        let price_val = initial_expr.add(Optlang::Int(100));
+        let price_ref = initial_expr.add(Optlang::Int(1));
+        let pred1 = initial_expr.add(Optlang::Gt([price_ref, price_val]));
+        let select1 = initial_expr.add(Optlang::Select([scan, pred1]));
+
+        // Second selection: quantity > 10
+        let qty_val = initial_expr.add(Optlang::Int(10));
+        let qty_ref = initial_expr.add(Optlang::Int(2));
+        let pred2 = initial_expr.add(Optlang::Gt([qty_ref, qty_val]));
+
+        initial_expr.add(Optlang::Select([select1, pred2]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+        let (initial_cost, initial_result) = ctx.clone().extract_with_cost(root_id);
+        debug!("Initial: {}", initial_result);
+
+        // Run optimizer
+        ctx.run(root_id);
+
+        let (optimized_cost, optimized_result) = ctx.extract_with_cost(root_id);
+        debug!("Optimized: {}", optimized_result);
+
+        // Cost should be same or better
+        assert!(
+            optimized_cost <= initial_cost,
+            "Optimized cost {} should be <= initial cost {}",
+            optimized_cost,
+            initial_cost
+        );
+
+        let optimized_str = optimized_result.to_string();
+        let initial_str = initial_result.to_string();
+        debug!("Initial:    {}", initial_str);
+        debug!("Optimized:  {}", optimized_str);
+
+        // EXPECTED STRUCTURE:
+        // Initial:  SELECT(SELECT(SCAN(table), pred1), pred2)
+        // Expected: SELECT(TABLE_SCAN(table), AND(pred1, pred2))
+        //
+        // Two consecutive selections should be combined into one with AND
+
+        // 1. Should have exactly ONE SELECT node
+        let select_count = optimized_str.matches("SELECT").count();
+        assert_eq!(
+            select_count, 1,
+            "FAILED: Should have exactly 1 SELECT (combined), got {}.\\n\\\n             Expected: (SELECT scan (AND pred1 pred2))\\n\\\n             Got:      {}\\n\\\n             Consecutive selections were NOT combined!",
+            select_count, optimized_str
+        );
+
+        // 2. Must have AND combining the predicates
+        assert!(
+            optimized_str.contains("(AND "),
+            "FAILED: Predicates should be combined with AND.\\n\\\n             Expected: (SELECT TABLE_SCAN (AND (> ...) (> ...)))\\n\\\n             Got:      {}\\n\\\n             Consecutive selections were NOT combined!",
+            optimized_str
+        );
+
+        // 3. Verify structure: SELECT should be outermost
+        assert!(
+            optimized_str.starts_with("(SELECT"),
+            "FAILED: SELECT should be outermost. Got: {}",
+            optimized_str
+        );
+
+        // 4. Must use physical scan
+        assert!(
+            optimized_str.contains("TABLE_SCAN"),
+            "Expected TABLE_SCAN, got: {}",
+            optimized_str
+        );
+
+        // 5. Must NOT contain logical SCAN
+        assert!(
+            !optimized_str.contains("(SCAN "),
+            "Expected no logical SCAN, got: {}",
+            optimized_str
+        );
+    }
+
+    #[test]
+    fn test_join_physical_implementation_selection() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create small and large tables
+        let small_table_id = catalog
+            .create_table_with_cols(
+                "small_table".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let large_table_id = catalog
+            .create_table_with_cols(
+                "large_table".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        // Create index on small table
+        let _small_index = catalog
+            .create_table_index(None, "small_table".to_string(), vec!["id".to_string()])
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&small_table_id)
+            .unwrap()
+            .set_est_num_rows(100);
+        catalog
+            .tables
+            .get_mut(&large_table_id)
+            .unwrap()
+            .set_est_num_rows(10000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build logical join
+        let mut initial_expr = RecExpr::default();
+
+        let small_table = initial_expr.add(Optlang::Table(small_table_id));
+        let small_scan = initial_expr.add(Optlang::Scan(small_table));
+
+        let large_table = initial_expr.add(Optlang::Table(large_table_id));
+        let large_scan = initial_expr.add(Optlang::Scan(large_table));
+
+        let pred = initial_expr.add(Optlang::Bool(true));
+
+        initial_expr.add(Optlang::Join([small_scan, large_scan, pred]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+
+        // Run optimizer - should explore different physical implementations
+        ctx.run(root_id);
+
+        let (optimized_cost, optimized_result) = ctx.extract_with_cost(root_id);
+        let optimized_str = optimized_result.to_string();
+        debug!("Optimized join plan: {}", optimized_str);
+        debug!("Optimized cost: {}", optimized_cost);
+
+        // EXPECTED STRUCTURE:
+        // Initial:  JOIN(SCAN(t1), SCAN(t2), pred)
+        // Expected: PHYSICAL_JOIN(TABLE_SCAN(t1), TABLE_SCAN(t2), pred)
+        //           where PHYSICAL_JOIN is one of: HASH_JOIN, NESTED_LOOP_JOIN, MERGE_JOIN
+
+        // 1. Must use physical join
+        let has_physical_join = optimized_str.contains("HASH_JOIN")
+            || optimized_str.contains("NESTED_LOOP_JOIN")
+            || optimized_str.contains("MERGE_JOIN");
+        assert!(
+            has_physical_join,
+            "FAILED: Must use physical join implementation.\\n\\\n             Expected: one of HASH_JOIN, NESTED_LOOP_JOIN, MERGE_JOIN\\n\\\n             Got:      {}\\n\\\n             Logical JOIN was NOT converted to physical!",
+            optimized_str
+        );
+
+        // 2. Must NOT contain logical JOIN
+        assert!(
+            !optimized_str.contains("(JOIN "),
+            "FAILED: Should not contain logical JOIN. Got: {}",
+            optimized_str
+        );
+
+        // 3. Must use physical scans
+        assert!(
+            optimized_str.contains("TABLE_SCAN") || optimized_str.contains("INDEX_SCAN"),
+            "FAILED: Must use physical scan. Got: {}",
+            optimized_str
+        );
+
+        // 4. Must NOT contain logical SCAN
+        assert!(
+            !optimized_str.contains("(SCAN "),
+            "FAILED: Should not contain logical SCAN. Got: {}",
+            optimized_str
+        );
+
+        // 5. Should have exactly 1 join and 2 scans
+        let join_count = optimized_str.matches("JOIN").count();
+        assert_eq!(
+            join_count, 1,
+            "Expected exactly 1 join, got {}: {}",
+            join_count, optimized_str
+        );
+
+        let scan_count = optimized_str.matches("SCAN").count();
+        assert_eq!(
+            scan_count, 2,
+            "Expected exactly 2 scans, got {}: {}",
+            scan_count, optimized_str
+        );
+    }
+
+    #[test]
+    fn test_complex_nested_optimization() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create three tables for a complex query
+        let users_id = catalog
+            .create_table_with_cols(
+                "users".to_string(),
+                vec![
+                    ("user_id".to_string(), DataType::Int),
+                    ("age".to_string(), DataType::Int),
+                ],
+            )
+            .unwrap();
+
+        let orders_id = catalog
+            .create_table_with_cols(
+                "orders".to_string(),
+                vec![
+                    ("order_id".to_string(), DataType::Int),
+                    ("user_id".to_string(), DataType::Int),
+                    ("total".to_string(), DataType::Int),
+                ],
+            )
+            .unwrap();
+
+        let items_id = catalog
+            .create_table_with_cols(
+                "items".to_string(),
+                vec![
+                    ("item_id".to_string(), DataType::Int),
+                    ("order_id".to_string(), DataType::Int),
+                    ("price".to_string(), DataType::Int),
+                ],
+            )
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&users_id)
+            .unwrap()
+            .set_est_num_rows(1000);
+        catalog
+            .tables
+            .get_mut(&orders_id)
+            .unwrap()
+            .set_est_num_rows(5000);
+        catalog
+            .tables
+            .get_mut(&items_id)
+            .unwrap()
+            .set_est_num_rows(20000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build complex query:
+        // SELECT(JOIN(JOIN(users, orders), items), age > 25)
+        // Unoptimized - joins everything then filters
+        let mut initial_expr = RecExpr::default();
+
+        let users_table = initial_expr.add(Optlang::Table(users_id));
+        let users_scan = initial_expr.add(Optlang::Scan(users_table));
+
+        let orders_table = initial_expr.add(Optlang::Table(orders_id));
+        let orders_scan = initial_expr.add(Optlang::Scan(orders_table));
+
+        let items_table = initial_expr.add(Optlang::Table(items_id));
+        let items_scan = initial_expr.add(Optlang::Scan(items_table));
+
+        // Join users and orders
+        let pred1 = initial_expr.add(Optlang::Bool(true));
+        let join1 = initial_expr.add(Optlang::Join([users_scan, orders_scan, pred1]));
+
+        // Join result with items
+        let pred2 = initial_expr.add(Optlang::Bool(true));
+        let join2 = initial_expr.add(Optlang::Join([join1, items_scan, pred2]));
+
+        // Filter by age
+        let age_val = initial_expr.add(Optlang::Int(25));
+        let age_ref = initial_expr.add(Optlang::Int(1));
+        let age_pred = initial_expr.add(Optlang::Gt([age_ref, age_val]));
+
+        initial_expr.add(Optlang::Select([join2, age_pred]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+        let (initial_cost, initial_result) = ctx.clone().extract_with_cost(root_id);
+
+        debug!("=== Complex Query Optimization ===");
+        debug!("Initial plan: {}", initial_result);
+        debug!("Initial cost: {}", initial_cost);
+
+        // Run optimizer
+        ctx.run(root_id);
+
+        let (optimized_cost, optimized_result) = ctx.extract_with_cost(root_id);
+        debug!("Optimized plan: {}", optimized_result);
+        debug!("Optimized cost: {}", optimized_cost);
+
+        // Should find a better plan
+        assert!(
+            optimized_cost <= initial_cost,
+            "Optimized cost {} should be <= initial cost {}",
+            optimized_cost,
+            initial_cost
+        );
+
+        let optimized_str = optimized_result.to_string();
+
+        // EXPECTED STRUCTURE:
+        // Initial:  SELECT(JOIN(JOIN(SCAN(users), SCAN(orders)), SCAN(items)), age > 25)
+        // Ideally expected:
+        //   PHYSICAL_JOIN(
+        //     PHYSICAL_JOIN(
+        //       SELECT(TABLE_SCAN(users), age > 25),  // filter pushed to users scan
+        //       TABLE_SCAN(orders)
+        //     ),
+        //     TABLE_SCAN(items)
+        //   )
+        // At minimum: all logical operators converted to physical
+
+        // 1. All logical operators should be converted to physical
+        assert!(
+            !optimized_str.contains("(JOIN ") && !optimized_str.contains("(SCAN "),
+            "FAILED: All logical operators should be physical.\\n\\\n             Expected: physical JOIN and SCAN only\\n\\\n             Got:      {}",
+            optimized_str
+        );
+
+        // 2. Should have 2 physical joins for 3 tables
+        let join_count = optimized_str.matches("JOIN").count();
+        assert_eq!(
+            join_count, 2,
+            "FAILED: Should have exactly 2 joins for 3 tables, got {}. Got: {}",
+            join_count, optimized_str
+        );
+
+        // 3. Should have 3 table scans (one per table)
+        let scan_count = optimized_str.matches("TABLE_SCAN").count()
+            + optimized_str.matches("INDEX_SCAN").count();
+        assert_eq!(
+            scan_count, 3,
+            "FAILED: Should have exactly 3 scans for 3 tables, got {}. Got: {}",
+            scan_count, optimized_str
+        );
+
+        // 4. Selection should be present
+        assert!(
+            optimized_str.contains("SELECT"),
+            "FAILED: Selection should be present. Got: {}",
+            optimized_str
+        );
+
+        // 5. Warn if selection wasn't pushed down (but don't fail - it's an optimization)
+        if let Some(first_join_pos) = optimized_str.find("JOIN") {
+            if let Some(select_pos) = optimized_str.find("SELECT") {
+                if select_pos < first_join_pos {
+                    eprintln!(
+                        "\\nWARNING: Selection was NOT pushed down through joins!\\n\\\n                         Expected: PHYSICAL_JOIN(... SELECT(...) ..., ...)\\n\\\n                         Got:      SELECT(PHYSICAL_JOIN(...), ...)\\n\\\n                         Plan: {}\\n",
+                        optimized_str
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_arithmetic_simplification_in_query() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        let table_id = catalog
+            .create_table_with_cols(
+                "products".to_string(),
+                vec![
+                    ("id".to_string(), DataType::Int),
+                    ("price".to_string(), DataType::Int),
+                ],
+            )
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&table_id)
+            .unwrap()
+            .set_est_num_rows(1000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build query with arithmetic that can be simplified:
+        // SELECT(scan, (price * 1) + 0 > 100)
+        // Should simplify to: SELECT(scan, price > 100)
+        let mut initial_expr = RecExpr::default();
+
+        let table = initial_expr.add(Optlang::Table(table_id));
+        let scan = initial_expr.add(Optlang::Scan(table));
+
+        // Build: (price * 1) + 0
+        let price_ref = initial_expr.add(Optlang::Int(1)); // Column reference
+        let one = initial_expr.add(Optlang::Int(1));
+        let mul_result = initial_expr.add(Optlang::Mul([price_ref, one]));
+        let zero = initial_expr.add(Optlang::Int(0));
+        let add_result = initial_expr.add(Optlang::Add([mul_result, zero]));
+
+        // Compare to 100
+        let hundred = initial_expr.add(Optlang::Int(100));
+        let predicate = initial_expr.add(Optlang::Gt([add_result, hundred]));
+
+        initial_expr.add(Optlang::Select([scan, predicate]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+        let (initial_cost, initial_result) = ctx.clone().extract_with_cost(root_id);
+
+        debug!("Initial with complex arithmetic: {}", initial_result);
+
+        // Run optimizer
+        ctx.run(root_id);
+
+        let (optimized_cost, optimized_result) = ctx.extract_with_cost(root_id);
+        debug!("Optimized simplified: {}", optimized_result);
+
+        // Should be cheaper or equal
+        assert!(
+            optimized_cost <= initial_cost,
+            "Optimized cost {} should be <= initial cost {}",
+            optimized_cost,
+            initial_cost
+        );
+
+        let initial_str = initial_result.to_string();
+        let optimized_str = optimized_result.to_string();
+
+        debug!("Initial arithmetic: {}", initial_str);
+        debug!("Optimized arithmetic: {}", optimized_str);
+
+        // EXPECTED STRUCTURE:
+        // Initial:  SELECT(SCAN(table), (price * 1) + 0 > 100)
+        // Expected: SELECT(TABLE_SCAN(table), price > 100)
+        //
+        // The arithmetic should be simplified: (x * 1) + 0 => x
+
+        // 1. Should NOT contain \"* 1\"
+        assert!(
+            !optimized_str.contains("* 1"),
+            "FAILED: Multiplication by 1 should be eliminated.\\n\\\n             Expected: ... price > 100\\n\\\n             Got:      {}\\n\\\n             Rule 'x * 1 => x' was NOT applied!",
+            optimized_str
+        );
+
+        // 2. Should NOT contain \"+ 0\"
+        assert!(
+            !optimized_str.contains("+ 0"),
+            "FAILED: Addition of 0 should be eliminated.\\n\\\n             Expected: ... price > 100\\n\\\n             Got:      {}\\n\\\n             Rule 'x + 0 => x' was NOT applied!",
+            optimized_str
+        );
+
+        // 3. Should have fewer operators
+        let initial_mul = initial_str.matches('*').count();
+        let initial_add = initial_str.matches('+').count();
+        let optimized_mul = optimized_str.matches('*').count();
+        let optimized_add = optimized_str.matches('+').count();
+
+        let initial_ops = initial_mul + initial_add;
+        let optimized_ops = optimized_mul + optimized_add;
+
+        assert!(
+            optimized_ops < initial_ops,
+            "FAILED: Should have fewer arithmetic operators.\\n\\\n             Initial: {} operators (* and +)\\n\\\n             Optimized: {} operators\\n\\\n             Initial:  {}\\n\\\n             Optimized: {}",
+            initial_ops,
+            optimized_ops,
+            initial_str,
+            optimized_str
+        );
+
+        // 4. Must use physical scan
+        assert!(
+            optimized_str.contains("TABLE_SCAN"),
+            "Expected TABLE_SCAN, got: {}",
+            optimized_str
+        );
+    }
+
+    #[test]
+    fn test_join_associativity_optimization() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create three tables with different sizes
+        let small_id = catalog
+            .create_table_with_cols("small".to_string(), vec![("id".to_string(), DataType::Int)])
+            .unwrap();
+
+        let medium_id = catalog
+            .create_table_with_cols(
+                "medium".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let large_id = catalog
+            .create_table_with_cols("large".to_string(), vec![("id".to_string(), DataType::Int)])
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&small_id)
+            .unwrap()
+            .set_est_num_rows(10);
+        catalog
+            .tables
+            .get_mut(&medium_id)
+            .unwrap()
+            .set_est_num_rows(1000);
+        catalog
+            .tables
+            .get_mut(&large_id)
+            .unwrap()
+            .set_est_num_rows(100000);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build: JOIN(small, JOIN(medium, large))
+        // Optimizer might reorder to: JOIN(JOIN(small, medium), large) if beneficial
+        let mut initial_expr = RecExpr::default();
+
+        let small_table = initial_expr.add(Optlang::Table(small_id));
+        let small_scan = initial_expr.add(Optlang::Scan(small_table));
+
+        let medium_table = initial_expr.add(Optlang::Table(medium_id));
+        let medium_scan = initial_expr.add(Optlang::Scan(medium_table));
+
+        let large_table = initial_expr.add(Optlang::Table(large_id));
+        let large_scan = initial_expr.add(Optlang::Scan(large_table));
+
+        // Join medium and large first (potentially expensive)
+        let pred1 = initial_expr.add(Optlang::Bool(true));
+        let join1 = initial_expr.add(Optlang::Join([medium_scan, large_scan, pred1]));
+
+        // Then join with small
+        let pred2 = initial_expr.add(Optlang::Bool(true));
+        initial_expr.add(Optlang::Join([small_scan, join1, pred2]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+        let (initial_cost, initial_result) = ctx.clone().extract_with_cost(root_id);
+
+        debug!("Initial join order: {}", initial_result);
+        debug!("Initial cost: {}", initial_cost);
+
+        // Run optimizer
+        ctx.run(root_id);
+
+        let (optimized_cost, optimized_result) = ctx.extract_with_cost(root_id);
+        debug!("Optimized join order: {}", optimized_result);
+        debug!("Optimized cost: {}", optimized_cost);
+
+        // Optimizer should find equal or better plan
+        assert!(
+            optimized_cost <= initial_cost,
+            "Optimized cost {} should be <= initial cost {}",
+            optimized_cost,
+            initial_cost
+        );
+
+        let optimized_str = optimized_result.to_string();
+
+        // EXPECTED STRUCTURE:
+        // Initial:  JOIN(SCAN(small), JOIN(SCAN(medium), SCAN(large)))
+        // The optimizer should explore different join orders and physical implementations
+        // Ideal might be different order, but must have physical operators
+
+        // 1. No logical operators
+        assert!(
+            !optimized_str.contains("(JOIN ") && !optimized_str.contains("(SCAN "),
+            "FAILED: Should use physical operators only. Got: {}",
+            optimized_str
+        );
+
+        // 2. Should have exactly 2 joins for 3 tables
+        let join_count = optimized_str.matches("JOIN").count();
+        assert_eq!(
+            join_count, 2,
+            "FAILED: Should have exactly 2 joins for 3 tables, got {}. Got: {}",
+            join_count, optimized_str
+        );
+
+        // 3. Should have exactly 3 physical scans
+        let scan_count = optimized_str.matches("TABLE_SCAN").count()
+            + optimized_str.matches("INDEX_SCAN").count();
+        assert_eq!(
+            scan_count, 3,
+            "FAILED: Should have exactly 3 scans for 3 tables, got {}. Got: {}",
+            scan_count, optimized_str
+        );
+
+        // 4. All table IDs should be present
+        assert!(
+            optimized_str.contains(&small_id.to_string())
+                && optimized_str.contains(&medium_id.to_string())
+                && optimized_str.contains(&large_id.to_string()),
+            "FAILED: All 3 tables should be in plan. Got: {}",
+            optimized_str
+        );
+
+        // 5. Cost should be reasonable (not overflow)
+        assert!(
+            optimized_cost < usize::MAX / 2,
+            "FAILED: Join cost should be reasonable, got {}",
+            optimized_cost
+        );
+
+        // Note: We don't assert a specific join order here, as the optimizer
+        // might choose different orderings. The key is it explores alternatives
+        // and the cost model drives the selection.
     }
 }
