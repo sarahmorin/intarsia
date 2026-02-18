@@ -97,8 +97,8 @@ impl Catalog {
             let mut column_ids = Vec::new();
             // Verify that each specified column exists in the table and get its ID.
             for col_name in columns {
-                if let Some(col_id) = table.column_ids.get(&col_name) {
-                    column_ids.push(*col_id);
+                if let Some(col_id) = table.get_column_id(&col_name) {
+                    column_ids.push(col_id);
                 } else {
                     return Err(format!(
                         "Column with name '{}' does not exist in table '{}'",

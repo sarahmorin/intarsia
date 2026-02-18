@@ -13,6 +13,16 @@ pub enum DataType {
             // Future data types can be added here (e.g., Float, String, etc.)
 }
 
+impl DataType {
+    pub fn size_in_bytes(&self) -> usize {
+        match self {
+            DataType::Int => 8,     // i64 is 8 bytes
+            DataType::String => 24, // String is a pointer + length + capacity (on 64-bit systems)
+            DataType::Bool => 1,    // bool is 1 byte
+        }
+    }
+}
+
 impl Display for DataType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
