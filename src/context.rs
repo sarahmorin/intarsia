@@ -86,7 +86,7 @@ enum Task {
 #[derive(Debug, Clone)]
 pub struct OptimizerContext {
     /// E-Graph to hold all expressions and their equivalences
-    pub(crate) egraph: EGraph<Optlang, ()>,
+    pub egraph: EGraph<Optlang, ()>,
     /// Catalog to hold metadata about tables, columns, and indexes
     pub(crate) catalog: Catalog,
     /// Colsets represent references to groups of columns for projections and predicates
