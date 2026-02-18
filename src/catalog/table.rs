@@ -13,12 +13,13 @@ use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Table {
-    pub id: TableId,                             // Unique identifier for the table
-    pub name: String,                            // Name of the table
-    pub column_ids: IndexMap<String, ColumnId>,  // List of column IDs that belong to this table
-    pub column_data: BTreeMap<ColumnId, Column>, // Map of column ID to Column metadata (for easy access)
+    pub id: TableId,                         // Unique identifier for the table
+    pub name: String,                        // Name of the table
+    column_ids: IndexMap<String, ColumnId>,  // List of column IDs that belong to this table
+    column_data: BTreeMap<ColumnId, Column>, // Map of column ID to Column metadata (for easy access)
     // Future fields can be added here (e.g., constraints, indexes, etc.)
-    pub est_num_rows: usize, // Number of rows in the table (for statistics purposes)
+    est_num_rows: usize, // Number of rows in the table (for statistics purposes)
+    est_row_size: usize, // Average size of a row in bytes (for statistics purposes)
 }
 
 impl Display for Table {
@@ -31,8 +32,8 @@ impl Display for Table {
             .join(", ");
         write!(
             f,
-            "Table {{ id: {}, name: {}, columns: [{}], est_rows: {}}}",
-            self.id, self.name, col_str, self.est_num_rows
+            "Table {{ id: {}, name: {}, columns: [{}], est_rows: {}, est_row_size: {}}}",
+            self.id, self.name, col_str, self.est_num_rows, self.est_row_size
         )
     }
 }
@@ -58,12 +59,18 @@ impl Table {
             column_data.insert(col_id, Column::new(col_id, col_name, col_type));
         }
 
+        let est_row_size = column_data
+            .values()
+            .map(|col| col.data_type.size_in_bytes())
+            .sum();
+
         Ok(Self {
             id,
             name,
             column_ids,
             column_data,
             est_num_rows,
+            est_row_size,
         })
     }
 
@@ -72,6 +79,11 @@ impl Table {
         self.column_ids
             .get(col_name)
             .and_then(|col_id| self.column_data.get(col_id))
+    }
+
+    /// Retrieves a column ID by its name. Returns `None` if the column does not exist.
+    pub fn get_column_id(&self, col_name: &str) -> Option<ColumnId> {
+        self.column_ids.get(col_name).cloned()
     }
 
     /// Retrieves a column by its ID. Returns `None` if the column does not exist.
@@ -92,5 +104,28 @@ impl Table {
     /// Retrieves the estimated number of rows in the table.
     pub fn get_est_num_rows(&self) -> usize {
         self.est_num_rows
+    }
+
+    /// Retrieves the estimated row size in bytes.
+    pub fn get_est_row_size(&self) -> usize {
+        self.est_row_size
+    }
+
+    /// Get tuples per page based on the estimated row size and a fixed page size (e.g., 4096 bytes).
+    pub fn get_tuples_per_page(&self) -> usize {
+        const PAGE_SIZE: usize = 4096; // 4KB page size
+        if self.est_row_size == 0 {
+            return 0; // Avoid division by zero if row size is unknown
+        }
+        PAGE_SIZE / self.est_row_size
+    }
+
+    /// Get the estimated number of blocks needed to store the table based on the estimated number of rows and tuples per page.
+    pub fn get_est_num_blocks(&self) -> usize {
+        let tuples_per_page = self.get_tuples_per_page();
+        if tuples_per_page == 0 {
+            return 0; // Avoid division by zero if tuples per page is unknown
+        }
+        (self.est_num_rows + tuples_per_page - 1) / tuples_per_page // Round up division
     }
 }
