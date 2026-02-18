@@ -24,7 +24,7 @@ type ConstructorVec<T> = Vec<T>;
 use egg::{EGraph, Id, define_language};
 
 define_language! {
-    enum testlang {
+    enum Testlang {
         // Constant Values
         Int(i64),
         // Dummy Operation
@@ -33,8 +33,8 @@ define_language! {
 }
 
 pub struct TestContext {
-    pub egraph: EGraph<testlang, ()>,
-    pub merge_queue: Vec<Vec<Id>>,
+    egraph: EGraph<Testlang, ()>,
+    merge_queue: Vec<Vec<Id>>,
 }
 
 impl TestContext {
@@ -62,7 +62,7 @@ impl Context for TestContext {
         // Extract all integer values in the given e-class
         // Since these are terminal, we dont need to call runner here
         for (_, node) in self.egraph.nodes_in_class(arg0) {
-            if let testlang::Int(val) = node {
+            if let Testlang::Int(val) = node {
                 returns.extend(Some(*val));
                 if returns.len() >= MAX_ISLE_RETURNS {
                     return;
@@ -73,7 +73,7 @@ impl Context for TestContext {
 
     type c_int_val_returns = ContextIterWrapper<ConstructorVec<Id>, Self>;
     fn c_int_val(&mut self, arg0: i64, returns: &mut Self::c_int_val_returns) -> () {
-        let (id, is_new) = self.egraph.add_with_flag(testlang::Int(arg0));
+        let (id, is_new) = self.egraph.add_with_flag(Testlang::Int(arg0));
         returns.extend(Some(id));
         if returns.len() >= MAX_ISLE_RETURNS {
             return;
@@ -89,7 +89,7 @@ impl Context for TestContext {
         // Extract all DummyOp operations in the given e-class
         let mut to_run = Vec::new();
         for (_, node) in self.egraph.nodes_in_class(arg0) {
-            if let testlang::DummyOp([lhs, rhs]) = node {
+            if let Testlang::DummyOp([lhs, rhs]) = node {
                 to_run.push((*lhs, *rhs));
             }
         }
@@ -106,7 +106,7 @@ impl Context for TestContext {
 
     type c_dummy_op_returns = ContextIterWrapper<ConstructorVec<Id>, Self>;
     fn c_dummy_op(&mut self, arg0: Id, arg1: Id, returns: &mut Self::c_dummy_op_returns) -> () {
-        let (id, is_new) = self.egraph.add_with_flag(testlang::DummyOp([arg0, arg1]));
+        let (id, is_new) = self.egraph.add_with_flag(Testlang::DummyOp([arg0, arg1]));
         returns.extend(Some(id));
         if returns.len() >= MAX_ISLE_RETURNS {
             return;
@@ -116,7 +116,7 @@ impl Context for TestContext {
         }
     }
 
-    fn r_run(&mut self, arg0: Id) -> Option<Id> {
+    fn r_run(&mut self, _arg0: Id) -> Option<Id> {
         None
     }
 
@@ -143,10 +143,10 @@ pub fn run_test_context() {
     // let mut id1_returns = ConstructorVec::new();
 
     // Preload the e-graph with some expressions
-    let id1 = ctx.egraph.add(testlang::Int(1));
-    let id2 = ctx.egraph.add(testlang::Int(2));
-    let id2p1 = ctx.egraph.add(testlang::DummyOp([id2, id1]));
-    let id = ctx.egraph.add(testlang::DummyOp([id1, id2p1]));
+    let id1 = ctx.egraph.add(Testlang::Int(1));
+    let id2 = ctx.egraph.add(Testlang::Int(2));
+    let id2p1 = ctx.egraph.add(Testlang::DummyOp([id2, id1]));
+    let id = ctx.egraph.add(Testlang::DummyOp([id1, id2p1]));
 
     // Run one pass of top down optimizations
     // NOTE: I think when we don't start with a pre-loaded e-graph, we rediscover the same stuff bottom up

@@ -8,11 +8,10 @@ use crate::{
     types::{ColumnId, DataType, TableId},
 };
 use indexmap::IndexMap;
-use log::error;
 use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Table {
+pub struct Table {
     pub id: TableId,                         // Unique identifier for the table
     pub name: String,                        // Name of the table
     column_ids: IndexMap<String, ColumnId>,  // List of column IDs that belong to this table
@@ -38,6 +37,7 @@ impl Display for Table {
     }
 }
 
+#[allow(dead_code)]
 impl Table {
     pub fn new(
         id: TableId,
