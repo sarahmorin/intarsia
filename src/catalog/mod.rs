@@ -4,11 +4,10 @@ pub(crate) mod column;
 pub(crate) mod index;
 pub(crate) mod table;
 
-use column::Column;
 use index::Index;
 use table::Table;
 
-use crate::types::{ColumnId, DataType, IndexId, TableId};
+use crate::types::{DataType, IndexId, TableId};
 use indexmap::IndexMap;
 
 /// The Catalog struct is the main entry point for managing database metadata. It provides methods for creating tables, adding columns, and managing indexes.

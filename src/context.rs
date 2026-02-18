@@ -9,7 +9,6 @@
 #[allow(unreachable_patterns, unreachable_code)]
 #[path = "isle/rules.rs"]
 mod rules;
-use cranelift_isle::ast::Def;
 use egg::{CostFunction, Extractor, Language, RecExpr};
 use rules::*;
 
@@ -87,11 +86,11 @@ enum Task {
 #[derive(Debug, Clone)]
 pub struct OptimizerContext {
     /// E-Graph to hold all expressions and their equivalences
-    pub egraph: EGraph<Optlang, ()>,
+    pub(crate) egraph: EGraph<Optlang, ()>,
     /// Catalog to hold metadata about tables, columns, and indexes
-    pub catalog: Catalog,
+    pub(crate) catalog: Catalog,
     /// Colsets represent references to groups of columns for projections and predicates
-    pub colsets: BiMap<ColSet, ColSetId>,
+    pub(crate) colsets: BiMap<ColSet, ColSetId>,
     next_colset_id: ColSetId,
     // Task stack
     task_stack: Vec<Task>,
@@ -471,7 +470,7 @@ impl CostFunction<Optlang> for OptimizerContext {
                 Cost::new(cost, Some(cardinality), Some(blocks), left_cost.properties)
             }
             // Sort: 3 * B * IO + N * log(N) * CPU
-            Optlang::Sort([source, cols]) => {
+            Optlang::Sort([source, _cols]) => {
                 let source_cost = costs(*source);
                 if source_cost.properties == SimpleProperty::Sorted {
                     return source_cost; // Sorting is free if already sorted

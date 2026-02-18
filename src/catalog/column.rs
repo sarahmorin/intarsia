@@ -2,11 +2,11 @@
 /// In this module, we define the `Column` struct, which represents a column in a table, and we also define the `ColumnType` enum, which represents the different types of columns that can exist in a database.
 /// This is a very basic implementation and can be extended in the future to support more features (e.g., constraints, default values, etc.).
 use crate::types::{ColumnId, DataType};
-use std::{cmp, fmt::Display};
+use std::fmt::Display;
 
 /// Column struct represents a column in a table.
 #[derive(Debug, Clone)]
-pub(crate) struct Column {
+pub struct Column {
     pub id: ColumnId, // Unique identifier for the column
     pub name: String, // Name of the column
     pub data_type: DataType, // Data type of the column

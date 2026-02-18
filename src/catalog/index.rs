@@ -6,7 +6,7 @@ use std::fmt::Display;
 use crate::types::{ColumnId, IndexId, TableId};
 
 #[derive(Debug, Clone)]
-pub(crate) struct Index {
+pub struct Index {
     pub id: IndexId,       // Unique identifier for the index
     pub name: String,      // Name of the index
     pub table_id: TableId, // ID of the table that this index belongs to
