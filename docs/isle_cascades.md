@@ -1,12 +1,15 @@
+> Warning: OUTDATED - ignore me until further notice
+
 # Implementing Cascades-style Search with ISLE over an e-graph
 
 The basic flow of cascades is:
 
-1. I want to optimize an expression group
+1. I want to optimize an expression group, so I need to optimize every expression in that group
 2. Before I can do that, I need to:
    1. optimize it's children (go to 1 on the argument expressions)
    2. Explore its logical equivalences
 3. To explore the logical equivalences of a group, I need to explore the logical equivalences of each expression in that group
+3. To explore an expression I need to explore each of its argument groups, then I can explore rules wrt that expression
 4. For every matching logical rule, I call apply rule to insert the equivalent term to the current group
    1. This might create an unexplored expression, so I make sure to handle that case by calling explore expression on any new expression I insert
 5. Once I've explored the group, I can optimize the group by optimizing each expression in the group
@@ -19,9 +22,9 @@ Another way to describe cascades is with dependencies:
 1. A group is optimized iff the group is explored and every expression in the group has been optimized
 2. A group is explored iff every expression in the group is explored
 3. An expression is explored if all its children (i.e. argument groups) are explored and all matching logical rules have been applied to it
-4. An expression is optimized if all its children have been optimized and all matching physical rules have been applied to it
+4. An expression is optimized if all its children have been optimized and for each child group, we have added the best argument that meets our property requirements to the "winner's circle"
 
-So the question is, how do we implement a cascased style search with ISLE rewrite rules?
+So the question is, how do we implement a cascade style search with ISLE rewrite rules?
 
 - A single entry point to the rewrite rules that does not recurse (we never call the set of rewrite rules from within a rewrite rule)
 - A runner to managing merging expressions we generated as a result of applying rules and repairing the e-graph
@@ -63,11 +66,6 @@ The `.isle` code will look something like this:
 
 ;; Optimize -> Entry point for logical-physical rules
 (decl multi optimize (Id) Id)
-
-;; We also have a run entrypoint which manages calling explore and optimize and merging their results in the e-graph.
-;; We implement this logic in the external constructor
-(decl run (Id) Id)
-(extern constructor run run)
 
 ;; RULE DEFINITIONS
 ;; Every rule maps from one expression to another, using one of our two entrypoints above.
