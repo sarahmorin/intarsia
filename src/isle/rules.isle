@@ -226,11 +226,12 @@
     (add (mul x y) (mul x z))
 )
 
+;; FIXME: This commutativity rule creates a bunch of weird e-nodes that don't make sense
 ;; Rule: Commutativity of AND
-(rule 
-    (explore (and x y))
-    (and y x)
-)
+;; (rule 
+;;     (explore (and x y))
+;;     (and y x)
+;; )
 
 ;; Rule: Commutativity of OR
 (rule 
