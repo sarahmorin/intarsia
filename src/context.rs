@@ -194,7 +194,7 @@ const CPU_COST: usize = 1;
 const IO_COST: usize = 1000;
 const TRANSFER_COST: usize = 10;
 // HACK: Selectivity factor for filters, right now it is constant but eventually we will want to estimate it based on statistics
-const SELECTIVITY_FACTOR: f64 = 0.2;
+const SELECTIVITY_FACTOR: f64 = 0.5;
 /// Implement a simple cost function for the optimizer context
 ///
 /// The basic cost model relies on the relative cost of cpu and io operations:
@@ -289,52 +289,54 @@ impl CostFunction<Optlang> for OptimizerContext {
 
             // Table Scan: I/O cost per block + transfer cost per row.
             Optlang::TableScan(arg_id) => {
-                let table_id = match self.egraph.get_node(*arg_id) {
+                match self.egraph.get_node(*arg_id) {
                     Optlang::Table(table_id) => table_id,
                     x => {
                         warn!("TableScan node {} wrapped around: {:?}", arg_id, x);
                         return Default::default();
                     }
                 };
-                // Lookup table in catalog to get number of rows and blocks, which we use to calculate cost
-                if let Some(table) = self.catalog.get_table_by_id(*table_id) {
-                    let num_rows = table.get_est_num_rows();
-                    let num_blocks = table.get_est_num_blocks();
-                    return Cost::new(
-                        num_blocks
-                            .saturating_mul(IO_COST)
-                            .saturating_add(num_rows.saturating_mul(TRANSFER_COST)),
-                        Some(num_rows),
-                        Some(num_blocks),
-                        SimpleProperty::Unsorted,
+                let table_cost = costs(*arg_id);
+                let cost = table_cost
+                    .blocks
+                    .unwrap_or(0)
+                    .saturating_mul(IO_COST)
+                    .saturating_add(
+                        table_cost
+                            .cardinality
+                            .unwrap_or(0)
+                            .saturating_mul(TRANSFER_COST),
                     );
-                }
-                Default::default()
+
+                Cost::new(
+                    cost,
+                    table_cost.cardinality,
+                    table_cost.blocks,
+                    SimpleProperty::Unsorted,
+                )
             }
             // Index Scan: (I/O cost + Cost Transfer) * rows
             // NOTE: This is a worst case, unclustered index scan cost estimate
             Optlang::IndexScan(arg_id) => {
-                let index_id = match self.egraph.get_node(*arg_id) {
+                match self.egraph.get_node(*arg_id) {
                     Optlang::Index(index_id) => index_id,
                     x => {
                         warn!("IndexScan node {} wrapped around: {:?}", arg_id, x);
                         return Default::default();
                     }
                 };
+                let index_cost = costs(*arg_id);
+                let cost = index_cost
+                    .cardinality
+                    .unwrap_or(0)
+                    .saturating_mul(IO_COST.saturating_add(TRANSFER_COST));
 
-                // Lookup index in catalog to verify exists, then lookup corresponding table to get number of rows, which we use to calculate cost
-                if let Some(index) = self.catalog.get_index_by_id(*index_id) {
-                    if let Some(table) = self.catalog.get_table_by_id(index.table_id) {
-                        let num_rows = table.get_est_num_rows();
-                        return Cost::new(
-                            num_rows.saturating_mul(IO_COST.saturating_add(TRANSFER_COST)),
-                            Some(num_rows),
-                            Some(table.get_est_num_blocks()),
-                            SimpleProperty::Sorted,
-                        );
-                    }
-                }
-                Default::default()
+                Cost::new(
+                    cost,
+                    index_cost.cardinality,
+                    index_cost.blocks,
+                    SimpleProperty::Sorted,
+                )
             }
             // Select: cost of args + Cost of predicate * num rows
             //  - cardianlity = num rows * selectivity
@@ -344,6 +346,7 @@ impl CostFunction<Optlang> for OptimizerContext {
                 let cost = source_cost.cost.saturating_add(
                     pred_cost
                         .cost
+                        .saturating_add(TRANSFER_COST)
                         .saturating_mul(source_cost.cardinality.unwrap_or(0)),
                 );
                 // HACK: This is gross
@@ -650,7 +653,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -670,7 +673,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -690,7 +693,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -710,7 +713,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -730,7 +733,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -750,7 +753,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -770,7 +773,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -790,7 +793,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -810,7 +813,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -830,7 +833,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -850,7 +853,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -870,7 +873,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -890,7 +893,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -908,9 +911,9 @@ impl Context for OptimizerContext {
         // Construct the new node and add it to the egraph
         let (id, is_new) = self.egraph.add_with_flag(Optlang::Select([arg0, arg1]));
 
-        // If we created a new e-class, push a task to explore/optimize it
+        // If we created a new e-class, push tasks to explore AND optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -928,9 +931,9 @@ impl Context for OptimizerContext {
         // Construct the new node and add it to the egraph
         let (id, is_new) = self.egraph.add_with_flag(Optlang::Project([arg0, arg1]));
 
-        // If we created a new e-class, push a task to explore/optimize it
+        // If we created a new e-class, push tasks to explore AND optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -948,9 +951,9 @@ impl Context for OptimizerContext {
         // Construct the new node and add it to the egraph
         let (id, is_new) = self.egraph.add_with_flag(Optlang::Join([arg0, arg1, arg2]));
 
-        // If we created a new e-class, push a task to explore/optimize it
+        // If we created a new e-class, push tasks to explore AND optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -970,7 +973,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -988,7 +991,7 @@ impl Context for OptimizerContext {
         // Construct the new node and add it to the egraph
         let (id, is_new) = self.egraph.add_with_flag(Optlang::TableScan(arg0));
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -1006,7 +1009,7 @@ impl Context for OptimizerContext {
         // Construct the new node and add it to the egraph
         let (id, is_new) = self.egraph.add_with_flag(Optlang::IndexScan(arg0));
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -1028,7 +1031,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -1050,7 +1053,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -1072,7 +1075,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -1092,7 +1095,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::OptimizeExpr(id, false));
+            self.task_stack.push(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -1218,6 +1221,7 @@ impl OptimizerContext {
 
         // If we have already explored this group, we can skip it
         if self.explored_groups.contains(&id) {
+            debug!("Group {:?} already explored, skipping", id);
             return;
         }
         self.exploring_groups.insert(id);
@@ -1278,6 +1282,7 @@ impl OptimizerContext {
         for new_id in id_set {
             self.egraph.union(id, new_id);
         }
+        // TODO: move this to explore group
         self.egraph.rebuild();
     }
 
@@ -1309,8 +1314,11 @@ impl OptimizerContext {
     }
 }
 
+#[allow(unused)]
 #[cfg(test)]
 mod tests {
+    use log::info;
+
     use super::*;
     use crate::types::DataType;
 
@@ -1320,6 +1328,15 @@ mod tests {
             .is_test(true)
             .filter_level(log::LevelFilter::Debug)
             .try_init();
+    }
+
+    /// Generate a diagram of the e-graph for debugging purposes
+    fn generate_egraph_diagram(ctx: &OptimizerContext, filename: &str) {
+        info!("Generating e-graph diagram to {}", filename);
+        ctx.egraph
+            .dot()
+            .to_png(format!("target/{}.png", filename))
+            .expect("Failed to generate e-graph diagram");
     }
 
     /// Helper function to create a test catalog with some sample tables
@@ -2173,7 +2190,6 @@ mod tests {
     // ==================== Full Optimizer Workflow Tests ====================
 
     #[test]
-    #[ignore = "failing, need to debug why selection pushdown isn't happening correctly yet"]
     fn test_selection_pushdown_through_join() {
         init_logger();
         let mut catalog = Catalog::new();
@@ -2424,7 +2440,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "failing, need to debug why consecutive selections aren't being combined yet"]
     fn test_combine_consecutive_selections() {
         init_logger();
         let mut catalog = Catalog::new();
