@@ -26,7 +26,7 @@ use crate::{
 use bimap::BiMap;
 use egg::{EGraph, Id, define_language};
 use log::{debug, warn};
-use std::{cmp::max, collections::HashSet};
+use std::{cmp::max, collections::HashMap, collections::HashSet};
 
 // Operator Language for optimization
 define_language! {
@@ -69,10 +69,28 @@ define_language! {
     }
 }
 
+impl Optlang {
+    pub fn property_req(&self, child_index: usize) -> SimpleProperty {
+        match self {
+            // MergeJoin requires its sources to be sorted
+            Optlang::MergeJoin(_) => {
+                if child_index == 0 || child_index == 1 {
+                    SimpleProperty::Sorted
+                } else {
+                    SimpleProperty::Bottom
+                }
+            }
+            // TODO: Add more property requirements
+            // Most operators don't require any specific properties from their children, so we return Bottom to indicate that there are no requirements
+            _ => SimpleProperty::Bottom,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Task {
-    /// OptimizeGroup(group_id, group_explored, exprs_optimized)
-    OptimizeGroup(Id, bool, bool),
+    /// OptimizeGroup(group_id, required_properties, group_explored, exprs_optimized)
+    OptimizeGroup(Id, SimpleProperty, bool, bool),
     /// OptimizeExpr(expr_id, children_optimized)
     OptimizeExpr(Id, bool),
     /// ExploreGroup(group_id, exprs_explored)
@@ -98,21 +116,38 @@ pub struct OptimizerContext {
     exploring_groups: HashSet<Id>,
     // Groups that have been fully explored
     explored_groups: HashSet<Id>,
-    // Groups that have been fully optimized
-    optimized_groups: HashSet<Id>,
+    // Groups that have been fully optimized mapped to the Id of the best expression for that group
+    // (GroupId, RequiredProperties) -> NodeId
+    optimized_groups: HashMap<(Id, SimpleProperty), Id>,
     // Groups that are currently being optimized (to prevent cycles)
-    optimizing_groups: HashSet<Id>,
+    optimizing_groups: HashSet<(Id, SimpleProperty)>,
+    // Property Extractor uses a cost map and cost function
+    costs: HashMap<(Id, SimpleProperty), Cost>,
+    // Optimized expressions
 }
 
 /// A very simple example of properties we might want to track in our optimizer context.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Copy)]
 pub enum SimpleProperty {
     Sorted,
     Unsorted,
-    Irrelevant,
+    Bottom,
 }
 
-#[derive(Debug, Clone, Eq)]
+/// Check if a provided property satisfies a required property.
+/// Returns true if an expression providing `provided` can be used where `required` is needed.
+fn satisfies_property(provided: &SimpleProperty, required: &SimpleProperty) -> bool {
+    match required {
+        // No requirement - any property satisfies
+        SimpleProperty::Bottom => true,
+        SimpleProperty::Unsorted => {
+            provided == &SimpleProperty::Unsorted || provided == &SimpleProperty::Sorted
+        }
+        SimpleProperty::Sorted => provided == &SimpleProperty::Sorted,
+    }
+}
+
+#[derive(Debug, Clone, Eq, Hash)]
 pub struct Cost {
     pub cost: usize,
     pub cardinality: Option<usize>,
@@ -140,7 +175,7 @@ impl Cost {
             cost,
             cardinality: None,
             blocks: None,
-            properties: SimpleProperty::Irrelevant,
+            properties: SimpleProperty::Bottom,
         }
     }
 }
@@ -151,7 +186,7 @@ impl Default for Cost {
             cost: usize::MAX,
             cardinality: None,
             blocks: None,
-            properties: SimpleProperty::Irrelevant,
+            properties: SimpleProperty::Bottom,
         }
     }
 }
@@ -165,6 +200,7 @@ impl PartialEq for Cost {
     }
 }
 
+// TODO: Update to satisfy property requirements inherently
 impl PartialOrd for Cost {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         // If costs are equal, compare cardinality estimates (lower is better)
@@ -175,7 +211,7 @@ impl PartialOrd for Cost {
                         // If cardinality estimates are also equal, compare block estimates (lower is better)
                         match self.blocks.partial_cmp(&other.blocks) {
                             Some(std::cmp::Ordering::Equal) => {
-                                // If block estimates are also equal, compare properties (Sorted < Unsorted < Irrelevant)
+                                // If block estimates are also equal, compare properties (Sorted < Unsorted < Bottom)
                                 Some(self.properties.cmp(&other.properties))
                             }
                             other => other,
@@ -1117,7 +1153,8 @@ impl OptimizerContext {
             exploring_groups: HashSet::new(),
             explored_groups: HashSet::new(),
             optimizing_groups: HashSet::new(),
-            optimized_groups: HashSet::new(),
+            optimized_groups: HashMap::new(),
+            costs: HashMap::new(),
         }
     }
 
@@ -1136,25 +1173,26 @@ impl OptimizerContext {
     /// This will explore the group and optimize all expressions in the group, and then mark the group as optimized.
     fn run_optimize_group(&mut self, task: Task) {
         // Unpack the task to get the ID, explored flag, and optimized flag
-        let (id, explored, optimized) = match task {
-            Task::OptimizeGroup(id, explored, optimized) => (id, explored, optimized),
+        let (id, props, explored, optimized) = match task {
+            Task::OptimizeGroup(id, props, explored, optimized) => (id, props, explored, optimized),
             _ => panic!("run_optimize_group called with non-optimize task"),
         };
         debug!(
             "run_optimize_group: {:?}",
-            Task::OptimizeGroup(id, explored, optimized)
+            Task::OptimizeGroup(id, props, explored, optimized)
         );
         // If we have already optimized this group, we can skip it
-        if self.optimized_groups.contains(&id) {
+        if self.optimized_groups.contains_key(&(id, props)) {
+            debug!("Group {:?} already optimized, skipping", id);
             return;
         }
         // Otherwise, mark as in progress
-        self.optimizing_groups.insert(id);
+        self.optimizing_groups.insert((id, props));
         // If we haven't explored this group yet, we need to explore it first
         if !explored {
             // Mark the task as having explored the group and push it back onto the queue
             self.task_stack
-                .push(Task::OptimizeGroup(id, true, optimized));
+                .push(Task::OptimizeGroup(id, props, true, optimized));
             self.task_stack.push(Task::ExploreGroup(id, false));
             return;
         }
@@ -1162,16 +1200,45 @@ impl OptimizerContext {
         if !optimized {
             // Mark the task as having optimized the group and push it back onto the queue
             self.task_stack
-                .push(Task::OptimizeGroup(id, explored, true));
+                .push(Task::OptimizeGroup(id, props, explored, true));
             // For each expression in the group, we need to run an optimize task on it first
             for (id, _) in self.egraph.nodes_in_class(id) {
                 self.task_stack.push(Task::OptimizeExpr(id, false));
             }
             return;
         }
-        // Otherwise, we have explored and optimized all expressions in the group, so we can mark this group as optimized
-        self.optimized_groups.insert(id);
-        self.optimizing_groups.remove(&id);
+        // Select the best expression in this group according to our cost model and store it in optimized_groups
+        let mut best_expr: Option<Id> = None;
+        let mut best_cost: Cost = Cost::default(); // Start with max cost (usize::MAX)
+
+        // Iterate through all expressions in this eclass
+        for (node_id, node) in self.egraph.nodes_in_class(id) {
+            // Compute the cost of this expression with the required properties
+            if let Some(cost) = self.compute_expr_cost_with_props(node, props) {
+                // If this is better than our current best, update
+                if cost < best_cost {
+                    best_cost = cost;
+                    best_expr = Some(node_id);
+                }
+            }
+        }
+
+        // If we found a valid expression, store it in the memo tables
+        if let Some(expr_id) = best_expr {
+            debug!(
+                "Optimized group {:?} with props {:?}: selected expr {:?} with cost {:?}",
+                id, props, expr_id, best_cost
+            );
+            self.costs.insert((id, props), best_cost);
+            self.optimized_groups.insert((id, props), expr_id);
+        } else {
+            debug!(
+                "Warning: No valid expression found for group {:?} with props {:?}",
+                id, props
+            );
+        }
+
+        self.optimizing_groups.remove(&(id, props));
     }
 
     /// Run an optimize expr task.
@@ -1191,22 +1258,332 @@ impl OptimizerContext {
         if !children_optimized {
             // Mark the task as having optimized args and push it back onto the queue
             self.task_stack.push(Task::OptimizeExpr(id, true));
+
+            // Determine the property requirements of the children based on the operator of this node, and pass those down in the optimize group tasks for the children
+            let node = self.egraph.get_node(id);
+
             // For each argument, we need to run an optimize task on it first
-            for child in self.egraph.get_node(id).children() {
-                if self.optimized_groups.contains(child) || self.optimizing_groups.contains(child) {
+            for (i, child) in node.children().iter().enumerate() {
+                let props = node.property_req(i);
+                if self.optimized_groups.contains_key(&(*child, props.clone()))
+                    || self.optimizing_groups.contains(&(*child, props.clone()))
+                {
                     // If the child group is currently being optimized or already optimized, we should skip optimizing this child for now and come back to it later
                     continue;
                 }
                 self.task_stack
-                    .push(Task::OptimizeGroup(*child, false, false));
+                    .push(Task::OptimizeGroup(*child, props, false, false));
             }
 
             return;
         }
 
-        // Once we've optimized the args, we can now optimize this node
-        // TODO: Implement optimization rules here.
-        warn!("run_optimize_expr not implemented yet, we should add optimization rules here");
+        // Nothing more to do here - the children are optimized
+        // The actual cost computation happens in run_optimize_group
+    }
+
+    /// Compute the cost of an expression node using memoized child costs.
+    /// Returns None if any child doesn't have a memoized cost for its required properties,
+    /// or if the resulting expression doesn't provide the required properties.
+    fn compute_expr_cost_with_props(
+        &self,
+        node: &Optlang,
+        required_props: SimpleProperty,
+    ) -> Option<Cost> {
+        // Build a map of child ID to their memoized costs with required properties
+        let mut child_cost_map: HashMap<Id, Cost> = HashMap::new();
+        for (i, child_id) in node.children().iter().enumerate() {
+            let child_req_props = node.property_req(i);
+            // Look up the memoized cost for this child with the required properties
+            let cost = self.costs.get(&(*child_id, child_req_props)).cloned()?;
+            child_cost_map.insert(*child_id, cost);
+        }
+
+        // Create a closure that returns memoized child costs
+        let cost_closure = |child_id: Id| {
+            child_cost_map
+                .get(&child_id)
+                .cloned()
+                .unwrap_or_else(Cost::default)
+        };
+
+        // Compute the cost using the same logic as the CostFunction implementation
+        // We need to manually duplicate the cost logic here since we can't call self.cost()
+        // from within another &mut self method with memoized costs
+        let computed_cost = self.compute_node_cost(node, cost_closure);
+
+        // Check if the computed cost provides the required properties
+        if satisfies_property(&computed_cost.properties, &required_props) {
+            Some(computed_cost)
+        } else {
+            // This expression cannot satisfy the required properties
+            debug!(
+                "Expression {:?} provides {:?} but requires {:?}",
+                node, computed_cost.properties, required_props
+            );
+            None
+        }
+    }
+
+    /// Compute the cost of a node given a closure that provides child costs.
+    /// This is the core cost computation logic, separated from the CostFunction trait
+    /// so it can be reused with memoized costs.
+    fn compute_node_cost<C>(&self, enode: &Optlang, mut costs: C) -> Cost
+    where
+        C: FnMut(Id) -> Cost,
+    {
+        // This logic mirrors the CostFunction implementation
+        // We duplicate it here to allow use with custom cost closures
+        match enode {
+            // Constant values have a cost of 0
+            Optlang::Int(_) | Optlang::Bool(_) | Optlang::Str(_) => Cost::simple(0),
+
+            // Arithmetic operations
+            Optlang::Add([x, y]) | Optlang::Sub([x, y]) => {
+                let cost = 2usize
+                    .saturating_mul(CPU_COST)
+                    .saturating_add(costs(*x).cost)
+                    .saturating_add(costs(*y).cost);
+                Cost::simple(cost)
+            }
+            Optlang::Mul([x, y]) | Optlang::Div([x, y]) => {
+                let cost = 4usize
+                    .saturating_mul(CPU_COST)
+                    .saturating_add(costs(*x).cost)
+                    .saturating_add(costs(*y).cost);
+                Cost::simple(cost)
+            }
+
+            // Comparison and logical operators
+            Optlang::Eq([x, y])
+            | Optlang::Lt([x, y])
+            | Optlang::Gt([x, y])
+            | Optlang::Le([x, y])
+            | Optlang::Ge([x, y])
+            | Optlang::Ne([x, y])
+            | Optlang::And([x, y])
+            | Optlang::Or([x, y]) => {
+                let cost = 1usize
+                    .saturating_mul(CPU_COST)
+                    .saturating_add(costs(*x).cost)
+                    .saturating_add(costs(*y).cost);
+                Cost::simple(cost)
+            }
+            Optlang::Not(x) => {
+                let cost = 1usize.saturating_add(costs(*x).cost);
+                Cost::simple(cost)
+            }
+
+            // Data sources
+            Optlang::Table(table_id) => {
+                if let Some(table) = self.catalog.get_table_by_id(*table_id) {
+                    Cost::new(
+                        0,
+                        Some(table.get_est_num_rows()),
+                        Some(table.get_est_num_blocks()),
+                        SimpleProperty::Unsorted,
+                    )
+                } else {
+                    Cost::new(0, None, None, SimpleProperty::Unsorted)
+                }
+            }
+            Optlang::Index(index_id) => {
+                if let Some(index) = self.catalog.get_index_by_id(*index_id) {
+                    if let Some(table) = self.catalog.get_table_by_id(index.table_id) {
+                        return Cost::new(
+                            0,
+                            Some(table.get_est_num_rows()),
+                            Some(table.get_est_num_blocks()),
+                            SimpleProperty::Sorted,
+                        );
+                    }
+                }
+                Cost::new(0, None, None, SimpleProperty::Sorted)
+            }
+            Optlang::ColSet(_) => Cost::simple(0),
+
+            // Logical operators have max cost to prevent extraction
+            Optlang::Join(_) | Optlang::Scan(_) => Default::default(),
+
+            // Physical operators
+            Optlang::TableScan(arg_id) => {
+                let table_cost = costs(*arg_id);
+                let cost = table_cost
+                    .blocks
+                    .unwrap_or(0)
+                    .saturating_mul(IO_COST)
+                    .saturating_add(
+                        table_cost
+                            .cardinality
+                            .unwrap_or(0)
+                            .saturating_mul(TRANSFER_COST),
+                    );
+                Cost::new(
+                    cost,
+                    table_cost.cardinality,
+                    table_cost.blocks,
+                    SimpleProperty::Unsorted,
+                )
+            }
+            Optlang::IndexScan(arg_id) => {
+                let index_cost = costs(*arg_id);
+                let cost = index_cost
+                    .cardinality
+                    .unwrap_or(0)
+                    .saturating_mul(IO_COST.saturating_add(TRANSFER_COST));
+                Cost::new(
+                    cost,
+                    index_cost.cardinality,
+                    index_cost.blocks,
+                    SimpleProperty::Sorted,
+                )
+            }
+            Optlang::Select([source, pred]) => {
+                let source_cost = costs(*source);
+                let pred_cost = costs(*pred);
+                let cost = source_cost.cost.saturating_add(
+                    pred_cost
+                        .cost
+                        .saturating_add(TRANSFER_COST)
+                        .saturating_mul(source_cost.cardinality.unwrap_or(0)),
+                );
+                let cardinality = SELECTIVITY_FACTOR * source_cost.cardinality.unwrap_or(0) as f64;
+                let blocks = SELECTIVITY_FACTOR * source_cost.blocks.unwrap_or(0) as f64;
+                Cost::new(
+                    cost,
+                    Some(cardinality as usize),
+                    Some(blocks as usize),
+                    source_cost.properties,
+                )
+            }
+            Optlang::Project([cols, source]) => {
+                let source_cost = costs(*source);
+                let pred_cost = costs(*cols);
+                let cost = source_cost.cost.saturating_add(
+                    pred_cost
+                        .cost
+                        .saturating_add(TRANSFER_COST)
+                        .saturating_mul(source_cost.cardinality.unwrap_or(0)),
+                );
+                Cost::new(
+                    cost,
+                    source_cost.cardinality,
+                    source_cost.blocks,
+                    source_cost.properties,
+                )
+            }
+            Optlang::NestedLoopJoin([left, right, pred]) => {
+                let left_cost = costs(*left);
+                let right_cost = costs(*right);
+                let pred_cost = costs(*pred);
+                let cost = left_cost
+                    .blocks
+                    .unwrap_or(0)
+                    .saturating_mul(IO_COST)
+                    .saturating_add(
+                        left_cost
+                            .blocks
+                            .unwrap_or(0)
+                            .saturating_mul(right_cost.blocks.unwrap_or(0))
+                            .saturating_mul(IO_COST),
+                    )
+                    .saturating_add(
+                        left_cost
+                            .cardinality
+                            .unwrap_or(0)
+                            .saturating_mul(right_cost.cardinality.unwrap_or(0))
+                            .saturating_mul(pred_cost.cost),
+                    );
+                let cardinality = max(
+                    left_cost.cardinality.unwrap_or(0),
+                    right_cost.cardinality.unwrap_or(0),
+                );
+                let blocks = max(
+                    left_cost.blocks.unwrap_or(0),
+                    right_cost.blocks.unwrap_or(0),
+                );
+                Cost::new(cost, Some(cardinality), Some(blocks), left_cost.properties)
+            }
+            Optlang::HashJoin([left, right, pred]) => {
+                let left_cost = costs(*left);
+                let right_cost = costs(*right);
+                let pred_cost = costs(*pred);
+                let cost = 3usize
+                    .saturating_mul(
+                        left_cost
+                            .blocks
+                            .unwrap_or(0)
+                            .saturating_add(right_cost.blocks.unwrap_or(0))
+                            .saturating_mul(IO_COST),
+                    )
+                    .saturating_add(
+                        left_cost
+                            .cardinality
+                            .unwrap_or(0)
+                            .saturating_add(right_cost.cardinality.unwrap_or(0))
+                            .saturating_mul(pred_cost.cost),
+                    );
+                let cardinality = max(
+                    left_cost.cardinality.unwrap_or(0),
+                    right_cost.cardinality.unwrap_or(0),
+                );
+                let blocks = max(
+                    left_cost.blocks.unwrap_or(0),
+                    right_cost.blocks.unwrap_or(0),
+                );
+                Cost::new(cost, Some(cardinality), Some(blocks), left_cost.properties)
+            }
+            Optlang::MergeJoin([left, right, pred]) => {
+                let left_cost = costs(*left);
+                let right_cost = costs(*right);
+                let pred_cost = costs(*pred);
+                let cost = left_cost
+                    .blocks
+                    .unwrap_or(0)
+                    .saturating_add(right_cost.blocks.unwrap_or(0))
+                    .saturating_mul(IO_COST)
+                    .saturating_add(
+                        left_cost
+                            .cardinality
+                            .unwrap_or(0)
+                            .saturating_add(right_cost.cardinality.unwrap_or(0))
+                            .saturating_mul(pred_cost.cost),
+                    );
+                let cardinality = max(
+                    left_cost.cardinality.unwrap_or(0),
+                    right_cost.cardinality.unwrap_or(0),
+                );
+                let blocks = max(
+                    left_cost.blocks.unwrap_or(0),
+                    right_cost.blocks.unwrap_or(0),
+                );
+                Cost::new(cost, Some(cardinality), Some(blocks), left_cost.properties)
+            }
+            Optlang::Sort([source, _cols]) => {
+                let source_cost = costs(*source);
+                if source_cost.properties == SimpleProperty::Sorted {
+                    return source_cost; // Sorting is free if already sorted
+                }
+                let cost = 3usize
+                    .saturating_mul(source_cost.blocks.unwrap_or(0))
+                    .saturating_mul(IO_COST)
+                    .saturating_add(
+                        source_cost
+                            .cardinality
+                            .unwrap_or(0)
+                            .saturating_mul(
+                                (source_cost.cardinality.unwrap_or(0) as f64).log2() as usize
+                            )
+                            .saturating_mul(CPU_COST),
+                    );
+                Cost::new(
+                    cost,
+                    source_cost.cardinality,
+                    source_cost.blocks,
+                    SimpleProperty::Sorted,
+                )
+            }
+        }
     }
 
     /// Run an explore group task.
@@ -1289,12 +1666,17 @@ impl OptimizerContext {
     /// Run the optimizer starting from the given ID. This will explore and optimize all expressions equivalent to the given ID.
     pub fn run(&mut self, id: Id) {
         // Push the initial ID onto the _to_process stack
-        self.task_stack.push(Task::OptimizeGroup(id, false, false));
+        self.task_stack.push(Task::OptimizeGroup(
+            id,
+            SimpleProperty::Bottom,
+            false,
+            false,
+        ));
 
         // Process all tasks in the stack
         while let Some(task) = self.task_stack.pop() {
             match task {
-                Task::OptimizeGroup(_, _, _) => self.run_optimize_group(task),
+                Task::OptimizeGroup(_, _, _, _) => self.run_optimize_group(task),
                 Task::OptimizeExpr(_, _) => self.run_optimize_expr(task),
                 Task::ExploreExpr(_, _) => self.run_explore_expr(task),
                 Task::ExploreGroup(_, _) => self.run_explore_group(task),
@@ -1308,9 +1690,259 @@ impl OptimizerContext {
     }
 
     pub fn extract_with_cost(&mut self, id: Id) -> (Cost, RecExpr<Optlang>) {
-        let extractor = Extractor::new(&self.egraph, self.clone());
-        let (cost, expr) = extractor.find_best(id);
+        // Extract the best expression for the given eclass with no property requirements (Bottom)
+        self.extract_with_property(id, SimpleProperty::Bottom)
+    }
+
+    /// Extract the best expression for a given eclass that satisfies the given property requirement.
+    /// This uses the memo table populated during optimization.
+    fn extract_with_property(&self, id: Id, props: SimpleProperty) -> (Cost, RecExpr<Optlang>) {
+        let eclass = self.egraph.find(id);
+        
+        // Look up the best node for this (eclass, property) pair
+        let best_node_id = self.optimized_groups.get(&(eclass, props));
+        
+        if best_node_id.is_none() {
+            warn!(
+                "No optimized expression found for eclass {:?} with property {:?}",
+                eclass, props
+            );
+            // Fall back to egg's extractor if we haven't optimized this eclass
+            let extractor = Extractor::new(&self.egraph, self.clone());
+            return extractor.find_best(eclass);
+        }
+        
+        let best_node_id = *best_node_id.unwrap();
+        let best_node = self.egraph.get_node(best_node_id);
+        
+        // Get the memoized cost
+        let cost = self
+            .costs
+            .get(&(eclass, props))
+            .cloned()
+            .unwrap_or_else(Cost::default);
+        
+        // Recursively extract children with their required properties
+        let mut expr = RecExpr::default();
+        self.extract_node_to_recexpr(best_node, &mut expr);
+        
         (cost, expr)
+    }
+
+    /// Recursively extract a node and its children into a RecExpr.
+    /// This looks up the required properties for each child and extracts accordingly.
+    fn extract_node_to_recexpr(&self, node: &Optlang, expr: &mut RecExpr<Optlang>) -> Id {
+        match node {
+            // Leaf nodes - no children to extract
+            Optlang::Int(v) => expr.add(Optlang::Int(*v)),
+            Optlang::Bool(v) => expr.add(Optlang::Bool(*v)),
+            Optlang::Str(v) => expr.add(Optlang::Str(v.clone())),
+            Optlang::Table(v) => expr.add(Optlang::Table(*v)),
+            Optlang::Index(v) => expr.add(Optlang::Index(*v)),
+            Optlang::ColSet(v) => expr.add(Optlang::ColSet(*v)),
+            
+            // Nodes with children - extract children with required properties
+            Optlang::Add([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Add([left_id, right_id]))
+            }
+            Optlang::Sub([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Sub([left_id, right_id]))
+            }
+            Optlang::Mul([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Mul([left_id, right_id]))
+            }
+            Optlang::Div([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Div([left_id, right_id]))
+            }
+            Optlang::Eq([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Eq([left_id, right_id]))
+            }
+            Optlang::Lt([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Lt([left_id, right_id]))
+            }
+            Optlang::Gt([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Gt([left_id, right_id]))
+            }
+            Optlang::Le([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Le([left_id, right_id]))
+            }
+            Optlang::Ge([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Ge([left_id, right_id]))
+            }
+            Optlang::Ne([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Ne([left_id, right_id]))
+            }
+            Optlang::And([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::And([left_id, right_id]))
+            }
+            Optlang::Or([left, right]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                expr.add(Optlang::Or([left_id, right_id]))
+            }
+            Optlang::Not(child) => {
+                let child_props = node.property_req(0);
+                let child_id = self.extract_child_for_node(*child, child_props, expr);
+                expr.add(Optlang::Not(child_id))
+            }
+            Optlang::Scan(child) => {
+                let child_props = node.property_req(0);
+                let child_id = self.extract_child_for_node(*child, child_props, expr);
+                expr.add(Optlang::Scan(child_id))
+            }
+            Optlang::Select([source, pred]) => {
+                let source_props = node.property_req(0);
+                let pred_props = node.property_req(1);
+                let source_id = self.extract_child_for_node(*source, source_props, expr);
+                let pred_id = self.extract_child_for_node(*pred, pred_props, expr);
+                expr.add(Optlang::Select([source_id, pred_id]))
+            }
+            Optlang::Project([cols, source]) => {
+                let cols_props = node.property_req(0);
+                let source_props = node.property_req(1);
+                let cols_id = self.extract_child_for_node(*cols, cols_props, expr);
+                let source_id = self.extract_child_for_node(*source, source_props, expr);
+                expr.add(Optlang::Project([cols_id, source_id]))
+            }
+            Optlang::Join([left, right, pred]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let pred_props = node.property_req(2);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                let pred_id = self.extract_child_for_node(*pred, pred_props, expr);
+                expr.add(Optlang::Join([left_id, right_id, pred_id]))
+            }
+            Optlang::TableScan(child) => {
+                let child_props = node.property_req(0);
+                let child_id = self.extract_child_for_node(*child, child_props, expr);
+                expr.add(Optlang::TableScan(child_id))
+            }
+            Optlang::IndexScan(child) => {
+                let child_props = node.property_req(0);
+                let child_id = self.extract_child_for_node(*child, child_props, expr);
+                expr.add(Optlang::IndexScan(child_id))
+            }
+            Optlang::NestedLoopJoin([left, right, pred]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let pred_props = node.property_req(2);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                let pred_id = self.extract_child_for_node(*pred, pred_props, expr);
+                expr.add(Optlang::NestedLoopJoin([left_id, right_id, pred_id]))
+            }
+            Optlang::HashJoin([left, right, pred]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let pred_props = node.property_req(2);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                let pred_id = self.extract_child_for_node(*pred, pred_props, expr);
+                expr.add(Optlang::HashJoin([left_id, right_id, pred_id]))
+            }
+            Optlang::MergeJoin([left, right, pred]) => {
+                let left_props = node.property_req(0);
+                let right_props = node.property_req(1);
+                let pred_props = node.property_req(2);
+                let left_id = self.extract_child_for_node(*left, left_props, expr);
+                let right_id = self.extract_child_for_node(*right, right_props, expr);
+                let pred_id = self.extract_child_for_node(*pred, pred_props, expr);
+                expr.add(Optlang::MergeJoin([left_id, right_id, pred_id]))
+            }
+            Optlang::Sort([source, cols]) => {
+                let source_props = node.property_req(0);
+                let cols_props = node.property_req(1);
+                let source_id = self.extract_child_for_node(*source, source_props, expr);
+                let cols_id = self.extract_child_for_node(*cols, cols_props, expr);
+                expr.add(Optlang::Sort([source_id, cols_id]))
+            }
+        }
+    }
+
+    /// Extract a child eclass with the required properties and add it to the RecExpr.
+    /// Returns the Id of the extracted subtree in the RecExpr.
+    fn extract_child_for_node(
+        &self,
+        child_eclass_id: Id,
+        required_props: SimpleProperty,
+        expr: &mut RecExpr<Optlang>,
+    ) -> Id {
+        let child_eclass = self.egraph.find(child_eclass_id);
+        
+        // Look up the best node for this (child_eclass, required_props) pair
+        if let Some(&best_node_id) = self.optimized_groups.get(&(child_eclass, required_props)) {
+            let best_node = self.egraph.get_node(best_node_id);
+            self.extract_node_to_recexpr(best_node, expr)
+        } else {
+            // Fallback: if we don't have the required property memoized, try Bottom
+            if required_props != SimpleProperty::Bottom {
+                if let Some(&best_node_id) =
+                    self.optimized_groups.get(&(child_eclass, SimpleProperty::Bottom))
+                {
+                    let best_node = self.egraph.get_node(best_node_id);
+                    return self.extract_node_to_recexpr(best_node, expr);
+                }
+            }
+            
+            // Last resort: extract any node from the eclass
+            warn!(
+                "No optimized node found for child eclass {:?} with property {:?}, using arbitrary node",
+                child_eclass, required_props
+            );
+            if let Some((node_id, _)) = self.egraph.nodes_in_class(child_eclass).next() {
+                let node = self.egraph.get_node(node_id);
+                self.extract_node_to_recexpr(node, expr)
+            } else {
+                panic!("Eclass {:?} has no nodes!", child_eclass);
+            }
+        }
     }
 }
 
@@ -2188,6 +2820,261 @@ mod tests {
     }
 
     // ==================== Full Optimizer Workflow Tests ====================
+
+    #[test]
+    fn test_merge_join_property_aware_optimization() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create two tables
+        let table1_id = catalog
+            .create_table_with_cols(
+                "table1".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let table2_id = catalog
+            .create_table_with_cols(
+                "table2".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        // Create indices on both tables
+        let index1_id = catalog
+            .create_table_index(None, "table1".to_string(), vec!["id".to_string()])
+            .unwrap();
+
+        let index2_id = catalog
+            .create_table_index(None, "table2".to_string(), vec!["id".to_string()])
+            .unwrap();
+
+        // Set table sizes to make index scans more expensive than table scans
+        // This ensures that without property requirements, table scans would be chosen
+        catalog
+            .tables
+            .get_mut(&table1_id)
+            .unwrap()
+            .set_est_num_rows(100);
+        catalog
+            .tables
+            .get_mut(&table2_id)
+            .unwrap()
+            .set_est_num_rows(200);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build initial expression with MergeJoin
+        // The optimizer should add both TableScan and IndexScan alternatives via exploration
+        // Then optimization should select IndexScan for MergeJoin inputs because they're sorted
+        let mut initial_expr = RecExpr::default();
+
+        let t1 = initial_expr.add(Optlang::Table(table1_id));
+        let scan1 = initial_expr.add(Optlang::Scan(t1));
+
+        let t2 = initial_expr.add(Optlang::Table(table2_id));
+        let scan2 = initial_expr.add(Optlang::Scan(t2));
+
+        let pred = initial_expr.add(Optlang::Bool(true));
+
+        // Use logical Join which should be converted to physical joins during exploration
+        initial_expr.add(Optlang::Join([scan1, scan2, pred]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+
+        debug!("E-graph before optimization:");
+        debug!("{:#?}", ctx.egraph);
+
+        // Run optimization
+        ctx.run(root_id);
+
+        debug!("E-graph after optimization:");
+        debug!("{:#?}", ctx.egraph);
+        debug!("Optimized groups: {:?}", ctx.optimized_groups);
+        debug!("Costs: {:?}", ctx.costs);
+
+        // Check that we have optimized the root with Bottom properties
+        assert!(
+            ctx.optimized_groups
+                .contains_key(&(root_id, SimpleProperty::Bottom)),
+            "Root should be optimized with Bottom properties"
+        );
+
+        // Verify that both scan eclasses have both Sorted and Unsorted options optimized
+        // The scan eclasses should have multiple expressions (TableScan and IndexScan)
+        let scan1_eclass = ctx.egraph.find(scan1);
+        let scan2_eclass = ctx.egraph.find(scan2);
+
+        debug!("Scan1 eclass {} members:", scan1_eclass);
+        for (node_id, node) in ctx.egraph.nodes_in_class(scan1_eclass) {
+            debug!("  Node {:?}: {:?}", node_id, node);
+        }
+
+        debug!("Scan2 eclass {} members:", scan2_eclass);
+        for (node_id, node) in ctx.egraph.nodes_in_class(scan2_eclass) {
+            debug!("  Node {:?}: {:?}", node_id, node);
+        }
+
+        // Check costs for scan1 with different properties
+        if let Some(cost_sorted) = ctx.costs.get(&(scan1_eclass, SimpleProperty::Sorted)) {
+            debug!("Scan1 with Sorted property: cost = {:?}", cost_sorted);
+            // Should select IndexScan for sorted
+            assert_eq!(cost_sorted.properties, SimpleProperty::Sorted);
+        }
+
+        if let Some(cost_unsorted) = ctx.costs.get(&(scan1_eclass, SimpleProperty::Unsorted)) {
+            debug!("Scan1 with Unsorted property: cost = {:?}", cost_unsorted);
+            // Should select TableScan for unsorted
+            assert_eq!(cost_unsorted.properties, SimpleProperty::Unsorted);
+        }
+
+        // The key test: if MergeJoin was selected in the root, verify its inputs are sorted
+        let root_eclass = ctx.egraph.find(root_id);
+        if let Some(&best_expr_id) = ctx
+            .optimized_groups
+            .get(&(root_eclass, SimpleProperty::Bottom))
+        {
+            let best_node = ctx.egraph.get_node(best_expr_id);
+            debug!("Best expression for root: {:?}", best_node);
+
+            if let Optlang::MergeJoin([left, right, _]) = best_node {
+                debug!("MergeJoin selected! Checking if inputs are sorted...");
+
+                // Check that left input was optimized with Sorted property
+                let left_eclass = ctx.egraph.find(*left);
+                let left_cost = ctx.costs.get(&(left_eclass, SimpleProperty::Sorted));
+                assert!(
+                    left_cost.is_some() && left_cost.unwrap().properties == SimpleProperty::Sorted,
+                    "MergeJoin left input should have Sorted property"
+                );
+
+                // Check that right input was optimized with Sorted property
+                let right_eclass = ctx.egraph.find(*right);
+                let right_cost = ctx.costs.get(&(right_eclass, SimpleProperty::Sorted));
+                assert!(
+                    right_cost.is_some()
+                        && right_cost.unwrap().properties == SimpleProperty::Sorted,
+                    "MergeJoin right input should have Sorted property"
+                );
+
+                debug!("✓ MergeJoin correctly uses sorted inputs!");
+            } else {
+                debug!("Note: MergeJoin was not selected (another join type chosen)");
+            }
+        }
+    }
+
+    #[test]
+    fn test_merge_join_extraction_uses_sorted_inputs() {
+        init_logger();
+        let mut catalog = Catalog::new();
+
+        // Create two tables with indices
+        let table1_id = catalog
+            .create_table_with_cols(
+                "table1".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let table2_id = catalog
+            .create_table_with_cols(
+                "table2".to_string(),
+                vec![("id".to_string(), DataType::Int)],
+            )
+            .unwrap();
+
+        let index1_id = catalog
+            .create_table_index(None, "table1".to_string(), vec!["id".to_string()])
+            .unwrap();
+
+        let index2_id = catalog
+            .create_table_index(None, "table2".to_string(), vec!["id".to_string()])
+            .unwrap();
+
+        catalog
+            .tables
+            .get_mut(&table1_id)
+            .unwrap()
+            .set_est_num_rows(100);
+        catalog
+            .tables
+            .get_mut(&table2_id)
+            .unwrap()
+            .set_est_num_rows(200);
+
+        let mut ctx = OptimizerContext::new(catalog);
+
+        // Build initial expression with logical Join
+        let mut initial_expr = RecExpr::default();
+        let t1 = initial_expr.add(Optlang::Table(table1_id));
+        let scan1 = initial_expr.add(Optlang::Scan(t1));
+        let t2 = initial_expr.add(Optlang::Table(table2_id));
+        let scan2 = initial_expr.add(Optlang::Scan(t2));
+        let pred = initial_expr.add(Optlang::Bool(true));
+        initial_expr.add(Optlang::Join([scan1, scan2, pred]));
+
+        let root_id = ctx.egraph.add_expr(&initial_expr);
+
+        // Run optimization
+        ctx.run(root_id);
+
+        // Extract the best expression
+        let (cost, extracted_expr) = ctx.extract_with_cost(root_id);
+        let extracted_str = extracted_expr.to_string();
+
+        debug!("Extracted expression: {}", extracted_str);
+        debug!("Cost: {:?}", cost);
+
+        // Verify that if MergeJoin is in the extracted plan, its inputs are sorted (IndexScan)
+        if extracted_str.contains("MERGE_JOIN") {
+            debug!("✓ MergeJoin found in extracted plan");
+
+            // Count IndexScans and TableScans
+            let index_scan_count = extracted_str.matches("INDEX_SCAN").count();
+            let table_scan_count = extracted_str.matches("TABLE_SCAN").count();
+
+            debug!("IndexScans: {}, TableScans: {}", index_scan_count, table_scan_count);
+
+            // If MergeJoin is used, we should have at least 2 IndexScans (for the two inputs)
+            assert!(
+                index_scan_count >= 2,
+                "MergeJoin should use IndexScans (sorted inputs), but found {} IndexScans",
+                index_scan_count
+            );
+
+            // Verify the indices are correct
+            assert!(
+                extracted_str.contains(&index1_id.to_string()),
+                "Should use index1"
+            );
+            assert!(
+                extracted_str.contains(&index2_id.to_string()),
+                "Should use index2"
+            );
+
+            debug!("✓ MergeJoin correctly uses IndexScans for sorted inputs in extracted plan!");
+        } else {
+            debug!("Note: MergeJoin not used in final plan (different join type selected)");
+            
+            // Even if MergeJoin wasn't selected, the plan should still be valid
+            // and should have some physical join operator
+            assert!(
+                extracted_str.contains("HASH_JOIN")
+                    || extracted_str.contains("NESTED_LOOP_JOIN")
+                    || extracted_str.contains("MERGE_JOIN"),
+                "Plan should contain a physical join operator"
+            );
+        }
+
+        // Verify no logical operators in the extracted plan
+        assert!(
+            !extracted_str.contains("(JOIN ")  && !extracted_str.contains("(SCAN "),
+            "Extracted plan should not contain logical operators, got: {}",
+            extracted_str
+        );
+    }
 
     #[test]
     fn test_selection_pushdown_through_join() {
