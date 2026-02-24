@@ -1,5 +1,5 @@
 use egg::RecExpr;
-use kymetica::{catalog::Catalog, context::OptimizerContext, types::DataType};
+use kymetica::{catalog::Catalog, optimizer::OptimizerContext, types::DataType};
 
 fn main() {
     // ============================================================
@@ -141,7 +141,7 @@ fn main() {
 
     println!("Step 2: Building initial query expression...");
 
-    use kymetica::context::Optlang;
+    use kymetica::optlang::Optlang;
     let mut initial_expr = RecExpr::default();
 
     // Data sources (tables)
@@ -182,7 +182,7 @@ fn main() {
     let combined_predicate = initial_expr.add(Optlang::And([age_predicate, amount_predicate]));
 
     // Apply selection filter
-    let final_select = initial_expr.add(Optlang::Select([join2, combined_predicate]));
+    let _final_select = initial_expr.add(Optlang::Select([join2, combined_predicate]));
 
     println!("  ✓ Query structure:");
     println!("    - 2 nested joins (3 tables total)");
@@ -255,7 +255,7 @@ fn main() {
 
     if optimized_cost.cost < initial_cost.cost {
         let improvement =
-            ((initial_cost.cost - optimized_cost.cost) as f64 / initial_cost.cost as f64 * 100.0);
+            (initial_cost.cost - optimized_cost.cost) as f64 / initial_cost.cost as f64 * 100.0;
         println!("Cost reduction:  {:.1}%", improvement);
     } else if optimized_cost.cost == initial_cost.cost {
         println!("Cost unchanged (already optimal or equivalent plan selected)");
