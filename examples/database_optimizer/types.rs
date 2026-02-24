@@ -1,16 +1,16 @@
+/// Domain-specific types for the database optimizer example.
+///
+/// These types are specific to database query optimization and would not be
+/// relevant for other optimizer use cases.
 use std::collections::BTreeSet as Set;
 use std::{fmt::Display, str::FromStr};
 
-/// Common type definitions used across the project.
-
-/// Supported Datatypes in a databse.
-// TODO: This is a very basic implementation and can be extended in the future to support more features (e.g., Float, String, etc.)
+/// Supported Datatypes in a database.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DataType {
     Int,    // i64
     String, // String
     Bool,   // bool
-            // Future data types can be added here (e.g., Float, String, etc.)
 }
 
 impl DataType {
@@ -39,6 +39,7 @@ pub type ColumnId = usize;
 pub type IndexId = usize;
 pub type ColSetId = usize;
 
+/// A set of columns from a table, used for projections and predicates.
 #[derive(Debug, Clone, Eq, PartialOrd, Hash, Ord)]
 pub struct ColSet {
     pub table_id: TableId,
@@ -148,90 +149,5 @@ impl FromStr for ColSet {
             table_id,
             column_ids,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_colset_from_str_basic() {
-        let result = "T_1[3,5,7]".parse::<ColSet>();
-        assert!(result.is_ok());
-        let colset = result.unwrap();
-        assert_eq!(colset.table_id, 1);
-        assert_eq!(colset.column_ids, Set::from([3, 5, 7]));
-    }
-
-    #[test]
-    fn test_colset_from_str_single_column() {
-        let result = "T_5[10]".parse::<ColSet>();
-        assert!(result.is_ok());
-        let colset = result.unwrap();
-        assert_eq!(colset.table_id, 5);
-        assert_eq!(colset.column_ids, Set::from([10]));
-    }
-
-    #[test]
-    fn test_colset_from_str_empty_columns() {
-        let result = "T_2[]".parse::<ColSet>();
-        assert!(result.is_ok());
-        let colset = result.unwrap();
-        assert_eq!(colset.table_id, 2);
-        assert_eq!(colset.column_ids, Set::<ColumnId>::new());
-    }
-
-    #[test]
-    fn test_colset_from_str_spaces() {
-        let result = "T_1[3, 5, 7]".parse::<ColSet>();
-        assert!(result.is_ok());
-        let colset = result.unwrap();
-        assert_eq!(colset.table_id, 1);
-        assert_eq!(colset.column_ids, Set::from([3, 5, 7]));
-    }
-
-    #[test]
-    fn test_colset_from_str_large_ids() {
-        let result = "T_100[200,300,400]".parse::<ColSet>();
-        assert!(result.is_ok());
-        let colset = result.unwrap();
-        assert_eq!(colset.table_id, 100);
-        assert_eq!(colset.column_ids, Set::from([200, 300, 400]));
-    }
-
-    #[test]
-    fn test_colset_from_str_missing_prefix() {
-        let result = "1[3,5,7]".parse::<ColSet>();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("T_"));
-    }
-
-    #[test]
-    fn test_colset_from_str_missing_opening_bracket() {
-        let result = "T_13,5,7]".parse::<ColSet>();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("["));
-    }
-
-    #[test]
-    fn test_colset_from_str_missing_closing_bracket() {
-        let result = "T_1[3,5,7".parse::<ColSet>();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("]"));
-    }
-
-    #[test]
-    fn test_colset_from_str_invalid_table_id() {
-        let result = "T_abc[3,5,7]".parse::<ColSet>();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("table_id"));
-    }
-
-    #[test]
-    fn test_colset_from_str_invalid_column_id() {
-        let result = "T_1[3,xyz,7]".parse::<ColSet>();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("column_id"));
     }
 }

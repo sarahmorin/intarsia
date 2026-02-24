@@ -3,6 +3,10 @@ name = "kymetica"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+build-helpers = ["dep:cranelift-isle"]
+
 [build-dependencies]
 cranelift-isle = { version = "0.128.1", features = [
     "fancy-errors",
@@ -16,13 +20,17 @@ cranelift-isle = { version = "0.128.1", features = [
     "fancy-errors",
     "log",
     "logging",
-] }
+], optional = true }
 egg = "0.11.0"
 indexmap = "2.13.0"
 log = "0.4.29"
 
 [dev-dependencies]
 env_logger = "0.11"
+
+[[example]]
+name = "database_optimizer"
+path = "examples/database_optimizer/main.rs"
 
 [patch.crates-io]
 egg = { path = "../egg" }

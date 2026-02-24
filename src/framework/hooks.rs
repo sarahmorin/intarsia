@@ -1,0 +1,112 @@
+/// Hooks for integrating rewrite rules with the optimizer framework.
+///
+/// This module provides traits that allow users to plug in their rewrite rule systems,
+/// particularly ISLE-generated rule systems, into the generic optimizer framework.
+use egg::{Id, Language};
+
+/// Trait for exploring expressions by applying rewrite rules.
+///
+/// This trait provides the hook point for integrating rewrite rules into the cascades
+/// optimizer framework. During the exploration phase, the framework calls `explore()`
+/// to generate logically equivalent expressions through rewrite rules.
+///
+/// # Implementation with ISLE
+///
+/// If you're using ISLE to generate rewrite rules, your implementation will typically
+/// call the ISLE-generated `constructor_explore` function:
+///
+/// ```rust,ignore
+/// impl ExplorerHooks for MyOptimizer {
+///     fn explore(&mut self, id: Id) -> Vec<Id> {
+///         let mut new_ids = Vec::new();
+///         // Call ISLE-generated explore function
+///         rules::constructor_explore(self, id, &mut new_ids);
+///         new_ids
+///     }
+/// }
+/// ```
+///
+/// # Implementation without ISLE
+///
+/// You can also implement this directly using egg's rewrite rules:
+///
+/// ```rust,ignore
+/// impl ExplorerHooks for MyOptimizer {
+///     fn explore(&mut self, id: Id) -> Vec<Id> {
+///         let mut new_ids = Vec::new();
+///         
+///         // Apply your rewrite rules
+///         for rule in &self.rules {
+///             let matches = rule.search(&self.egraph);
+///             for subst in matches {
+///                 if let Some(new_id) = rule.apply(&mut self.egraph, &subst) {
+///                     new_ids.push(new_id);
+///                 }
+///             }
+///         }
+///         
+///         new_ids
+///     }
+/// }
+/// ```
+///
+/// # Semantics
+///
+/// The `explore` method should:
+/// - Take an expression node ID as input
+/// - Apply rewrite rules to generate equivalent expressions
+/// - Add new expressions to the e-graph
+/// - Return the IDs of newly created expressions
+/// - Maintain logical equivalence (all returned expressions must be equivalent to input)
+///
+/// # E-graph Modifications
+///
+/// The framework expects that:
+/// - New nodes are added to the e-graph via `self.egraph.add()`
+/// - Equivalences are established (nodes may be added to existing e-classes)
+/// - The e-graph is NOT rebuilt during this call (framework handles rebuilding)
+///
+/// # Return Value
+///
+/// Return a vector of IDs for newly created expressions. The framework will:
+/// - Union these IDs with the input ID to establish equivalence
+/// - Rebuild the e-graph to propagate equivalences
+/// - Continue exploration as needed
+pub trait ExplorerHooks<L: Language> {
+    /// Apply rewrite rules to an expression and return newly created equivalent expressions.
+    ///
+    /// # Arguments
+    ///
+    /// * `id` - The ID of the expression node to explore
+    ///
+    /// # Returns
+    ///
+    /// A vector of IDs for newly created expressions that are equivalent to the input.
+    /// Return an empty vector if no new expressions were generated.
+    ///
+    /// # Implementation Notes
+    ///
+    /// - You can access the e-graph via `self.egraph`
+    /// - You can access domain-specific data via `self.user_data`
+    /// - Don't call `egraph.rebuild()` - the framework does this
+    /// - The returned IDs will be unioned with the input ID by the framework
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// fn explore(&mut self, id: Id) -> Vec<Id> {
+    ///     let mut new_ids = Vec::new();
+    ///     let node = self.egraph.get_node(id);
+    ///     
+    ///     // Example: Commutativity of addition
+    ///     if let MyLang::Add([a, b]) = node {
+    ///         // Create (b + a) as equivalent to (a + b)
+    ///         let new_id = self.egraph.add(MyLang::Add([*b, *a]));
+    ///         new_ids.push(new_id);
+    ///     }
+    ///     
+    ///     new_ids
+    /// }
+    /// ```
+    fn explore(&mut self, id: Id) -> Vec<Id>;
+}

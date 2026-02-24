@@ -1,18 +1,12 @@
-use crate::optimizer::rules::*;
+use super::rules::*;
 /// Implements the context for ISLE generated code.
 use egg::Id;
 
-// -- Required for error reporting in generated ISLE code --
-// NOTE: When using a multiconstructor, you must set a maximum number of returns.
-// You also need to define the ConstructorVec type for the multiconstructor.
-use crate::optimizer::ConstructorVec;
+use super::ConstructorVec;
 // --------------------------------------------
-use crate::{
-    optimizer::{OptimizerContext, Task},
-    optlang::Optlang,
-    types::ColSet,
-};
+use super::{DbOptimizer, language::Optlang, types::ColSet};
 
+use kymetica::framework::Task;
 use log::warn;
 
 // Implement the Context trait for OptimizerContext, which is required by ISLE-generated code.
@@ -32,7 +26,7 @@ use log::warn;
 //
 // The run method calls the explore and optimize entrypoints and handles merging and rebuilding the egraph as needed.
 #[allow(unused_variables)]
-impl Context for OptimizerContext {
+impl Context for DbOptimizer {
     fn extractor_combine_columns(&mut self, arg0: usize) -> Option<(usize, usize)> {
         warn!(
             "extractor_combine_columns doesn't make sense, we shouldn't call it in the first place"
@@ -42,22 +36,26 @@ impl Context for OptimizerContext {
 
     fn constructor_combine_columns(&mut self, arg0: usize, arg1: usize) -> Option<usize> {
         let colset1 = self
+            .user_data
             .colsets
             .get_by_right(&arg0)
             .expect("Invalid ColSetId for constructor_combine_columns");
 
         let colset2 = self
+            .user_data
             .colsets
             .get_by_right(&arg1)
             .expect("Invalid ColSetId for constructor_combine_columns");
         let combined_colset = ColSet::combine(colset1, colset2)?;
         // Check if we already have this combined colset in our BiMap, if not add it with a new ColSetId
-        if let Some(id) = self.colsets.get_by_left(&combined_colset) {
+        if let Some(id) = self.user_data.colsets.get_by_left(&combined_colset) {
             Some(*id)
         } else {
-            let new_id = self.next_colset_id;
-            self.colsets.insert(combined_colset.clone(), new_id);
-            self.next_colset_id += 1;
+            let new_id = self.user_data.next_colset_id;
+            self.user_data
+                .colsets
+                .insert(combined_colset.clone(), new_id);
+            self.user_data.next_colset_id += 1;
             Some(new_id)
         }
     }
@@ -74,7 +72,7 @@ impl Context for OptimizerContext {
 
     fn constructor_access_table(&mut self, arg0: usize) -> Option<Id> {
         // Verify that table exists in the catalog before constructing the node
-        if !self.catalog.tables.contains_key(&arg0) {
+        if !self.user_data.catalog.tables.contains_key(&arg0) {
             warn!(
                 "constructor_access_table called with invalid table_id: {}",
                 arg0
@@ -97,7 +95,7 @@ impl Context for OptimizerContext {
 
     fn constructor_access_index(&mut self, arg0: usize) -> Option<Id> {
         // Verify that index exists in the catalog before constructing the node
-        if !self.catalog.indexes.contains_key(&arg0) {
+        if !self.user_data.catalog.indexes.contains_key(&arg0) {
             warn!(
                 "constructor_access_index called with invalid index_id: {}",
                 arg0
@@ -120,7 +118,7 @@ impl Context for OptimizerContext {
 
     fn constructor_ref_colset(&mut self, arg0: usize) -> Option<Id> {
         // Verify that colset exists in the catalog before constructing the node
-        if !self.colsets.contains_right(&arg0) {
+        if !self.user_data.colsets.contains_right(&arg0) {
             warn!(
                 "constructor_ref_colset called with invalid colset_id: {}",
                 arg0
@@ -167,7 +165,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -187,7 +185,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -207,7 +205,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -227,7 +225,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -247,7 +245,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -267,7 +265,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -287,7 +285,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -307,7 +305,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -327,7 +325,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -347,7 +345,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -367,7 +365,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -387,7 +385,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -407,7 +405,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -427,7 +425,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push tasks to explore AND optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -447,7 +445,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push tasks to explore AND optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -467,7 +465,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push tasks to explore AND optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -487,7 +485,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -505,7 +503,7 @@ impl Context for OptimizerContext {
         // Construct the new node and add it to the egraph
         let (id, is_new) = self.egraph.add_with_flag(Optlang::TableScan(arg0));
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -523,7 +521,7 @@ impl Context for OptimizerContext {
         // Construct the new node and add it to the egraph
         let (id, is_new) = self.egraph.add_with_flag(Optlang::IndexScan(arg0));
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -545,7 +543,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -567,7 +565,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -589,7 +587,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
@@ -609,7 +607,7 @@ impl Context for OptimizerContext {
 
         // If we created a new e-class, push a task to explore/optimize it
         if is_new {
-            self.task_stack.push(Task::ExploreExpr(id, false));
+            self.push_task(Task::ExploreExpr(id, false));
         }
         id
     }
