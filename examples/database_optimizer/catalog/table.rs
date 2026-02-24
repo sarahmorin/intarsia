@@ -1,24 +1,20 @@
-use std::fmt::Display;
+/// Database table metadata.
 
-/// Tables are the main data source. They are collections of columns, and they are used to store and organize data in a database.
-/// In this module, we define the `Table` struct, which represents a table in a database.
-/// This is a very basic implementation and can be extended in the future to support more features.
-use crate::{
-    catalog::column::Column,
-    types::{ColumnId, DataType, TableId},
-};
+use super::column::Column;
+use super::super::types::{ColumnId, DataType, TableId};
 use indexmap::IndexMap;
 use std::collections::BTreeMap;
+use std::fmt::Display;
 
+/// Table struct represents a table in a database.
 #[derive(Debug, Clone)]
 pub struct Table {
     pub id: TableId,                         // Unique identifier for the table
     pub name: String,                        // Name of the table
-    column_ids: IndexMap<String, ColumnId>,  // List of column IDs that belong to this table
-    column_data: BTreeMap<ColumnId, Column>, // Map of column ID to Column metadata (for easy access)
-    // Future fields can be added here (e.g., constraints, indexes, etc.)
-    est_num_rows: usize, // Number of rows in the table (for statistics purposes)
-    est_row_size: usize, // Average size of a row in bytes (for statistics purposes)
+    column_ids: IndexMap<String, ColumnId>,  // Map of column name to column ID
+    column_data: BTreeMap<ColumnId, Column>, // Map of column ID to Column metadata
+    est_num_rows: usize,                     // Estimated number of rows (for statistics)
+    est_row_size: usize,                     // Average size of a row in bytes (for statistics)
 }
 
 impl Display for Table {
@@ -37,7 +33,6 @@ impl Display for Table {
     }
 }
 
-#[allow(dead_code)]
 impl Table {
     pub fn new(
         id: TableId,
@@ -47,11 +42,12 @@ impl Table {
     ) -> Result<Self, String> {
         let mut column_ids = IndexMap::new();
         let mut column_data = BTreeMap::new();
+        
         for (i, (col_name, col_type)) in columns.into_iter().enumerate() {
             let col_id = i as ColumnId + 1; // Column IDs start from 1
             if column_ids.contains_key(&col_name) {
                 return Err(format!(
-                    "Duplicate column name '{}' in table '{}', ignoring this column",
+                    "Duplicate column name '{}' in table '{}'",
                     col_name, name
                 ));
             }
@@ -74,19 +70,19 @@ impl Table {
         })
     }
 
-    /// Retrieves a column by its name. Returns `None` if the column does not exist.
+    /// Retrieves a column by its name.
     pub fn get_column(&self, col_name: &str) -> Option<&Column> {
         self.column_ids
             .get(col_name)
             .and_then(|col_id| self.column_data.get(col_id))
     }
 
-    /// Retrieves a column ID by its name. Returns `None` if the column does not exist.
+    /// Retrieves a column ID by its name.
     pub fn get_column_id(&self, col_name: &str) -> Option<ColumnId> {
         self.column_ids.get(col_name).cloned()
     }
 
-    /// Retrieves a column by its ID. Returns `None` if the column does not exist.
+    /// Retrieves a column by its ID.
     pub fn get_column_by_id(&self, col_id: ColumnId) -> Option<&Column> {
         self.column_data.get(&col_id)
     }
@@ -96,7 +92,7 @@ impl Table {
         self.column_ids.len()
     }
 
-    /// Sets the estimated number of rows in the table. This can be used for statistics purposes.
+    /// Sets the estimated number of rows in the table.
     pub fn set_est_num_rows(&mut self, est_num_rows: usize) {
         self.est_num_rows = est_num_rows;
     }
@@ -111,21 +107,21 @@ impl Table {
         self.est_row_size
     }
 
-    /// Get tuples per page based on the estimated row size and a fixed page size (e.g., 4096 bytes).
+    /// Get tuples per page based on the estimated row size and a fixed page size.
     pub fn get_tuples_per_page(&self) -> usize {
         const PAGE_SIZE: usize = 4096; // 4KB page size
         if self.est_row_size == 0 {
-            return 0; // Avoid division by zero if row size is unknown
+            return 0;
         }
         PAGE_SIZE / self.est_row_size
     }
 
-    /// Get the estimated number of blocks needed to store the table based on the estimated number of rows and tuples per page.
+    /// Get the estimated number of blocks needed to store the table.
     pub fn get_est_num_blocks(&self) -> usize {
         let tuples_per_page = self.get_tuples_per_page();
         if tuples_per_page == 0 {
-            return 0; // Avoid division by zero if tuples per page is unknown
+            return 0;
         }
-        (self.est_num_rows + tuples_per_page - 1) / tuples_per_page // Round up division
+        (self.est_num_rows + tuples_per_page - 1) / tuples_per_page // Round up
     }
 }
