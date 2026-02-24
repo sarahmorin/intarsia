@@ -7,7 +7,7 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 use crate::framework::{
-    cost::{CostDomain, CostFunction, SimpleCost},
+    cost::{CostFunction, CostResult},
     hooks::ExplorerHooks,
     language_ext::PropertyAwareLanguage,
     property::Property,
@@ -23,7 +23,6 @@ use crate::framework::{
 ///
 /// * `L` - The language type (must implement `Language` and `PropertyAwareLanguage<P>`)
 /// * `P` - The property type (must implement `Property`)
-/// * `C` - The cost domain type (must implement `CostDomain<P>`)
 /// * `UserData` - User-defined data accessible during optimization
 ///
 /// # Examples
@@ -35,11 +34,8 @@ use crate::framework::{
 ///     colsets: BiMap<ColSet, ColSetId>,
 /// }
 ///
-/// // Create type alias for convenience using simple CostResult
-/// type MyOptimizer = OptimizerFramework<QueryLang, SimpleProperty, SimpleCost<SimpleProperty>, DbUserData>;
-///
-/// // Or with a custom cost domain
-/// type DbOptimizer = OptimizerFramework<QueryLang, SimpleProperty, DbCost<SimpleProperty>, DbUserData>;
+/// // Create type alias for convenience
+/// type MyOptimizer = OptimizerFramework<QueryLang, SimpleProperty, DbUserData>;
 ///
 /// // Create optimizer instance
 /// let user_data = DbUserData { /* ... */ };
@@ -55,12 +51,10 @@ use crate::framework::{
 /// // Extract best plan
 /// let best_plan = optimizer.extract(root_id);
 /// ```
-#[derive(Debug, Clone)]
-pub struct OptimizerFramework<L, P, C, UserData>
+pub struct OptimizerFramework<L, P, UserData>
 where
     L: Language + PropertyAwareLanguage<P>,
     P: Property,
-    C: CostDomain<P>,
 {
     /// The e-graph holding all expressions and their equivalences
     pub egraph: EGraph<L, ()>,
@@ -74,31 +68,31 @@ where
     /// Task stack for the cascades optimization algorithm
     pub(crate) task_stack: Vec<Task<P>>,
 
-    /// Groups that have been explored
+    /// Groups currently being explored (to detect cycles)
+    exploring_groups: HashSet<Id>,
+
+    /// Groups that have been fully explored
     explored_groups: HashSet<Id>,
 
     /// Groups that are currently being optimized (to detect cycles)
-    optimized_groups: HashSet<(Id, P)>,
+    optimizing_groups: HashSet<(Id, P)>,
 
     /// Best expression for each (group, property) pair
     ///
     /// Maps (group_id, required_properties) to the ID of the best expression node
     /// that satisfies those properties.
-    // TODO: Make accessors instead
-    pub optimized_memo: HashMap<(Id, P), Id>,
+    optimized_groups: HashMap<(Id, P), Id>,
 
     /// Memoized costs for each (group, property) pair
     ///
     /// Stores the cost of the best expression for each (group_id, required_properties) pair.
-    // TODO: Make accessors instead of public field
-    pub costs: HashMap<(Id, P), C>,
+    costs: HashMap<(Id, P), CostResult<P>>,
 }
 
-impl<L, P, C, UserData> OptimizerFramework<L, P, C, UserData>
+impl<L, P, UserData> OptimizerFramework<L, P, UserData>
 where
     L: Language + PropertyAwareLanguage<P>,
     P: Property,
-    C: CostDomain<P>,
 {
     /// Create a new optimizer framework instance.
     ///
@@ -110,9 +104,10 @@ where
             egraph: EGraph::default(),
             user_data,
             task_stack: Vec::new(),
+            exploring_groups: HashSet::new(),
             explored_groups: HashSet::new(),
-            optimized_groups: HashSet::new(),
-            optimized_memo: HashMap::new(),
+            optimizing_groups: HashSet::new(),
+            optimized_groups: HashMap::new(),
             costs: HashMap::new(),
         }
     }
@@ -156,7 +151,7 @@ where
     /// After `run()` completes, use `extract()` to get the best expression.
     pub fn run(&mut self, id: Id)
     where
-        Self: ExplorerHooks<L> + CostFunction<L, P, C>,
+        Self: ExplorerHooks<L> + CostFunction<L, P>,
     {
         // Push the initial optimization task with no property requirements
         self.task_stack
@@ -167,8 +162,8 @@ where
             match task {
                 Task::OptimizeGroup(_, _, _, _) => self.run_optimize_group(task),
                 Task::OptimizeExpr(_, _) => self.run_optimize_expr(task),
+                Task::ExploreExpr(_, _) => self.run_explore_expr(task),
                 Task::ExploreGroup(_, _) => self.run_explore_group(task),
-                Task::ExploreChildren(_) => self.run_explore_children(task),
             }
         }
     }
@@ -187,7 +182,6 @@ where
     /// Extract the best expression for the given group.
     ///
     /// Returns the lowest-cost expression satisfying the default (bottom) properties.
-    /// Assumes that `run()` has already been called to perform optimization.
     ///
     /// # Arguments
     ///
@@ -207,8 +201,6 @@ where
 
     /// Extract the best expression along with its cost.
     ///
-    /// Assumes that `run()` has already been called to perform optimization.
-    ///
     /// # Arguments
     ///
     /// * `id` - The ID of the group to extract
@@ -216,15 +208,11 @@ where
     /// # Returns
     ///
     /// A tuple of (cost, expression) for the best plan
-    pub fn extract_with_cost(&self, id: Id) -> (C, RecExpr<L>) {
+    pub fn extract_with_cost(&self, id: Id) -> (CostResult<P>, RecExpr<L>) {
         self.extract_with_property(id, P::bottom())
     }
 
     /// Extract the best expression satisfying specific property requirements.
-    ///
-    /// Assumes that `run()` has already been called to perform optimization.
-    /// If no expression satisfies the required properties, this will fall back to extracting
-    /// the best expression by AstSize without property requirements, and will log a warning.
     ///
     /// # Arguments
     ///
@@ -234,21 +222,21 @@ where
     /// # Returns
     ///
     /// A tuple of (cost, expression) for the best plan satisfying the properties
-    fn extract_with_property(&self, id: Id, props: P) -> (C, RecExpr<L>) {
+    fn extract_with_property(&self, id: Id, props: P) -> (CostResult<P>, RecExpr<L>) {
         let eclass = self.egraph.find(id);
 
         // Look up the best node for this (eclass, property) pair
-        let best_node_id = self.optimized_memo.get(&(eclass, props.clone()));
+        let best_node_id = self.optimized_groups.get(&(eclass, props.clone()));
 
         if best_node_id.is_none() {
             warn!(
-                "No optimized expression found for eclass {:?} with property {:?}\n\nFalling back to arbitrary AstSize extraction without property requirements.\nThis may indicate that optimization did not complete or that no expression satisfies the required properties.",
+                "No optimized expression found for eclass {:?} with property {:?}",
                 eclass, props
             );
             // Fall back to egg's extractor if we haven't optimized this eclass
             let extractor = Extractor::new(&self.egraph, AstSize);
-            let (_cost, rec_expr) = extractor.find_best(eclass);
-            return (C::default(), rec_expr);
+            let (cost, rec_expr) = extractor.find_best(eclass);
+            return (CostResult::new(cost, P::bottom()), rec_expr);
         }
 
         let best_node_id = *best_node_id.unwrap();
@@ -259,13 +247,11 @@ where
             .costs
             .get(&(eclass, props.clone()))
             .cloned()
-            .unwrap_or_else(C::default);
+            .unwrap_or_else(CostResult::default);
 
         // Recursively extract children with their required properties
-        // Use memoization to avoid creating duplicate nodes when the same e-class appears multiple times
         let mut expr = RecExpr::default();
-        let mut extraction_memo: HashMap<(Id, P), Id> = HashMap::new();
-        self.extract_node_to_recexpr(best_node, &mut expr, &mut extraction_memo);
+        self.extract_node_to_recexpr(best_node, &mut expr);
 
         (cost, expr)
     }
@@ -273,14 +259,8 @@ where
     /// Recursively extract a node and its children into a RecExpr.
     ///
     /// This looks up required properties for each child and extracts them accordingly,
-    /// building up the RecExpr from the bottom up. Uses memoization to avoid creating
-    /// duplicate nodes when the same e-class appears multiple times.
-    fn extract_node_to_recexpr(
-        &self,
-        node: &L,
-        expr: &mut RecExpr<L>,
-        extraction_memo: &mut HashMap<(Id, P), Id>,
-    ) -> Id {
+    /// building up the RecExpr from the bottom up.
+    fn extract_node_to_recexpr(&self, node: &L, expr: &mut RecExpr<L>) -> Id {
         // For nodes with children, extract each child with required properties
         let children = node.children();
         if children.is_empty() {
@@ -292,7 +272,7 @@ where
             for (i, &child_id) in children.iter().enumerate() {
                 let required_props = node.property_req(i);
                 let extracted_child_id =
-                    self.extract_child_for_node(child_id, required_props, expr, extraction_memo);
+                    self.extract_child_for_node(child_id, required_props, expr);
                 extracted_children.push(extracted_child_id);
             }
 
@@ -307,65 +287,43 @@ where
     /// Extract a child eclass with required properties and add it to the RecExpr.
     ///
     /// Returns the Id of the extracted subtree in the RecExpr.
-    /// Uses memoization to avoid extracting the same (eclass, property) pair multiple times.
     fn extract_child_for_node(
         &self,
         child_eclass_id: Id,
         required_props: P,
         expr: &mut RecExpr<L>,
-        extraction_memo: &mut HashMap<(Id, P), Id>,
     ) -> Id {
         let child_eclass = self.egraph.find(child_eclass_id);
 
-        // Check if we've already extracted this (eclass, property) pair
-        if let Some(&existing_id) = extraction_memo.get(&(child_eclass, required_props.clone())) {
-            return existing_id;
-        }
-
         // Look up the best node for this (child_eclass, required_props) pair
-        let recexpr_id = if let Some(&best_node_id) = self
-            .optimized_memo
+        if let Some(&best_node_id) = self
+            .optimized_groups
             .get(&(child_eclass, required_props.clone()))
         {
             let best_node = self.egraph.get_node(best_node_id);
-            self.extract_node_to_recexpr(best_node, expr, extraction_memo)
+            self.extract_node_to_recexpr(best_node, expr)
         } else {
             // Fallback: if we don't have the required property memoized, try Bottom
             if required_props != P::bottom() {
-                if let Some(&best_node_id) = self.optimized_memo.get(&(child_eclass, P::bottom())) {
+                if let Some(&best_node_id) = self.optimized_groups.get(&(child_eclass, P::bottom()))
+                {
                     let best_node = self.egraph.get_node(best_node_id);
-                    self.extract_node_to_recexpr(best_node, expr, extraction_memo)
-                } else {
-                    // Last resort: extract any node from the eclass
-                    warn!(
-                        "No optimized node found for child eclass {:?} with property {:?}, using arbitrary node",
-                        child_eclass, required_props
-                    );
-                    if let Some((node_id, _)) = self.egraph.nodes_in_class(child_eclass).next() {
-                        let node = self.egraph.get_node(node_id);
-                        self.extract_node_to_recexpr(node, expr, extraction_memo)
-                    } else {
-                        panic!("Eclass {:?} has no nodes!", child_eclass);
-                    }
-                }
-            } else {
-                // Last resort: extract any node from the eclass
-                warn!(
-                    "No optimized node found for child eclass {:?} with property {:?}, using arbitrary node",
-                    child_eclass, required_props
-                );
-                if let Some((node_id, _)) = self.egraph.nodes_in_class(child_eclass).next() {
-                    let node = self.egraph.get_node(node_id);
-                    self.extract_node_to_recexpr(node, expr, extraction_memo)
-                } else {
-                    panic!("Eclass {:?} has no nodes!", child_eclass);
+                    return self.extract_node_to_recexpr(best_node, expr);
                 }
             }
-        };
 
-        // Memoize this extraction
-        extraction_memo.insert((child_eclass, required_props), recexpr_id);
-        recexpr_id
+            // Last resort: extract any node from the eclass
+            warn!(
+                "No optimized node found for child eclass {:?} with property {:?}, using arbitrary node",
+                child_eclass, required_props
+            );
+            if let Some((node_id, _)) = self.egraph.nodes_in_class(child_eclass).next() {
+                let node = self.egraph.get_node(node_id);
+                self.extract_node_to_recexpr(node, expr)
+            } else {
+                panic!("Eclass {:?} has no nodes!", child_eclass);
+            }
+        }
     }
 
     /// Run an optimize group task.
@@ -373,31 +331,31 @@ where
     /// This explores the group and optimizes all expressions, then selects the best one.
     fn run_optimize_group(&mut self, task: Task<P>)
     where
-        Self: ExplorerHooks<L> + CostFunction<L, P, C>,
+        Self: ExplorerHooks<L> + CostFunction<L, P>,
     {
         let (id, props, explored, optimized) = match task {
             Task::OptimizeGroup(id, props, explored, optimized) => (id, props, explored, optimized),
             _ => panic!("run_optimize_group called with non-optimize task"),
         };
-
-        // Canonicalize the ID - it may have changed due to unions during exploration
-        let id = self.egraph.find(id);
-
         debug!(
             "run_optimize_group: {:?}",
             Task::OptimizeGroup(id, props.clone(), explored, optimized)
         );
 
+        // If we have already optimized this group, skip it
+        if self.optimized_groups.contains_key(&(id, props.clone())) {
+            debug!("Group {:?} already optimized, skipping", id);
+            return;
+        }
+
         // Mark as in progress
-        self.optimized_groups.insert((id, props.clone()));
+        self.optimizing_groups.insert((id, props.clone()));
 
         // If we haven't explored this group yet, explore it first
         if !explored {
             self.task_stack
                 .push(Task::OptimizeGroup(id, props.clone(), true, optimized));
-            if !self.explored_groups.contains(&id) {
-                self.task_stack.push(Task::ExploreGroup(id, false));
-            }
+            self.task_stack.push(Task::ExploreGroup(id, false));
             return;
         }
 
@@ -413,7 +371,7 @@ where
 
         // Select the best expression in this group
         let mut best_expr: Option<Id> = None;
-        let mut best_cost = C::default(); // Start with max cost
+        let mut best_cost = CostResult::<P>::default(); // Start with max cost
 
         for (node_id, node) in self.egraph.nodes_in_class(id) {
             // Compute cost with required properties
@@ -432,15 +390,15 @@ where
                 id, props, expr_id, best_cost
             );
             self.costs.insert((id, props.clone()), best_cost);
-            self.optimized_memo.insert((id, props.clone()), expr_id);
+            self.optimized_groups.insert((id, props.clone()), expr_id);
         } else {
-            warn!(
+            debug!(
                 "Warning: No valid expression found for group {:?} with props {:?}",
                 id, props
             );
-            // QUESTION: Should we not mark this group as optimized if we didn't find any valid expression?
-            // Or should we store a sentinel value to indicate that we've optimized but found nothing?
         }
+
+        self.optimizing_groups.remove(&(id, props));
     }
 
     /// Run an optimize expr task.
@@ -448,7 +406,7 @@ where
     /// This optimizes all children of the expression first.
     fn run_optimize_expr(&mut self, task: Task<P>)
     where
-        Self: CostFunction<L, P, C>,
+        Self: CostFunction<L, P>,
     {
         let (id, children_optimized) = match task {
             Task::OptimizeExpr(id, children_optimized) => (id, children_optimized),
@@ -468,24 +426,20 @@ where
             // Optimize each child with its required properties
             for (i, child) in node.children().iter().enumerate() {
                 let props = node.property_req(i);
-                // Canonicalize child ID before checking tracking structures
-                let canonical_child = self.egraph.find(*child);
-                if self
-                    .optimized_groups
-                    .contains(&(canonical_child, props.clone()))
+                if self.optimized_groups.contains_key(&(*child, props.clone()))
+                    || self.optimizing_groups.contains(&(*child, props.clone()))
                 {
                     // Skip if already optimized or in progress
                     continue;
                 }
                 self.task_stack
-                    .push(Task::OptimizeGroup(canonical_child, props, false, false));
+                    .push(Task::OptimizeGroup(*child, props, false, false));
             }
 
             return;
         }
 
         // Children are optimized - the cost computation happens in run_optimize_group
-        // QUESTION: Should we do expression level bookkeeping here or just rely on group-level optimization?
     }
 
     /// Run an explore group task.
@@ -499,113 +453,80 @@ where
             Task::ExploreGroup(id, explored) => (id, explored),
             _ => panic!("run_explore_group called with non-explore task"),
         };
-
-        // Canonicalize the ID - it may have changed due to unions during exploration
-        let id = self.egraph.find(id);
-
         debug!("run_explore_group: id={:?}, explored={:?}", id, explored);
 
-        self.explored_groups.insert(id);
+        // If already explored, skip
+        if self.explored_groups.contains(&id) {
+            debug!("Group {:?} already explored, skipping", id);
+            return;
+        }
+        self.exploring_groups.insert(id);
 
         // If expressions haven't been explored yet, explore them
         if !explored {
-            debug!("Scheduling explore of group {:?} and its children", id);
             self.task_stack.push(Task::ExploreGroup(id, true));
             for (node_id, _) in self.egraph.nodes_in_class(id) {
-                self.task_stack.push(Task::ExploreChildren(node_id));
+                self.task_stack.push(Task::ExploreExpr(node_id, false));
             }
             return;
         }
 
-        // Once I've explored my children, I explore myself by applying rewrite rules.
-        // Since the rewrite rules might generate exploration tasks on my children,
-        // I want to ensure to explore myself again *after* I've explored my children.
-        // So I push an ExploreGroup task for myself with explored=true to the stack, which will be processed after all my children have been explored.
-        self.task_stack.push(Task::ExploreGroup(id, true));
-
-        // Apply rewrite rules to this group
-        let new_ids = self.explore(id);
-
-        // Union new expressions with this group and track if we discovered any new equivalences
-        let mut changed = false;
-        for new_id in &new_ids {
-            if self.egraph.union(id, *new_id) {
-                changed = true;
-            }
-        }
-
-        // If we discovered new expressions, we need to rebuild the e-graph to propagate equivalences.
-        if changed {
-            self.egraph.rebuild();
-        }
-
-        debug!(
-            "Finished exploring group {:?}. Discovered {} equivalent expressions. Changed: {}",
-            id,
-            new_ids.len(),
-            changed
-        );
-
-        // If we did not discover any new equivalences AND my own explore group is the next task on the stack,
-        // then we can skip re-exploring myself since we know we won't find anything new.
-        if !changed {
-            if let Some(Task::ExploreGroup(next_id, _)) = self.task_stack.last() {
-                if *next_id == id {
-                    debug!(
-                        "Skipping redundant explore of group {:?} since no new equivalences were found.",
-                        id
-                    );
-                    self.task_stack.pop();
-                }
-            }
-        }
+        // Mark group as explored
+        self.explored_groups.insert(id);
+        self.exploring_groups.remove(&id);
     }
 
-    /// Run an explore children task.
+    /// Run an explore expr task.
     ///
-    /// This generates ExploreGroup tasks for all the children of this expression to ensure they are explored before exploring this expression.
-    fn run_explore_children(&mut self, task: Task<P>)
+    /// This explores children first, then applies rewrite rules to this expression.
+    fn run_explore_expr(&mut self, task: Task<P>)
     where
         Self: ExplorerHooks<L>,
     {
-        let id = match task {
-            Task::ExploreChildren(id) => id,
-            _ => panic!("run_explore_children called with non-explore children task"),
+        let (id, children_explored) = match task {
+            Task::ExploreExpr(id, children_explored) => (id, children_explored),
+            _ => panic!("run_explore_expr called with non-explore task"),
         };
-        debug!("run_explore_children: id={:?}", id);
+        debug!(
+            "run_explore_expr: id={:?}, children_explored={:?}",
+            id, children_explored
+        );
 
-        let node = self.egraph.get_node(id);
-        for child in node.children() {
-            // Canonicalize child ID before checking tracking structures
-            let canonical_child = self.egraph.find(*child);
-            if self.explored_groups.contains(&canonical_child) {
-                // Skip if already explored (cycle detection)
-                debug!(
-                    "Skipping explore of child group {:?} since it's already explored.",
-                    canonical_child
-                );
-                continue;
+        // If children haven't been explored yet, explore them first
+        if !children_explored {
+            self.task_stack.push(Task::ExploreExpr(id, true));
+            for child in self.egraph.get_node(id).children() {
+                if self.explored_groups.contains(child) || self.exploring_groups.contains(child) {
+                    // Skip if already explored or in progress (cycle detection)
+                    continue;
+                }
+                self.task_stack.push(Task::ExploreGroup(*child, false));
             }
-            debug!(
-                "Scheduling explore of child group {:?} for parent node {:?}",
-                canonical_child, id
-            );
-            self.task_stack
-                .push(Task::ExploreGroup(canonical_child, false));
+            return;
         }
+
+        // Apply rewrite rules to this expression
+        let new_ids = self.explore(id);
+
+        // Union new expressions with this one
+        for new_id in new_ids {
+            self.egraph.union(id, new_id);
+        }
+
+        // Rebuild e-graph to propagate equivalences
+        self.egraph.rebuild();
     }
 
     /// Compute the cost of an expression with required properties using memoized costs.
     ///
     /// Returns None if any child doesn't have memoized costs or if the expression
     /// doesn't satisfy the required properties.
-    // QUESTION: Should we distinguish between "child doesn't have memoized cost yet" vs "child's best expression doesn't satisfy required properties"?
-    fn compute_expr_cost_with_props(&self, node: &L, required_props: P) -> Option<C>
+    fn compute_expr_cost_with_props(&self, node: &L, required_props: P) -> Option<CostResult<P>>
     where
-        Self: CostFunction<L, P, C>,
+        Self: CostFunction<L, P>,
     {
         // Build a map of child costs with their required properties
-        let mut child_cost_map: HashMap<Id, C> = HashMap::new();
+        let mut child_cost_map: HashMap<Id, CostResult<P>> = HashMap::new();
         for (i, child_id) in node.children().iter().enumerate() {
             let child_req_props = node.property_req(i);
             let cost = self.costs.get(&(*child_id, child_req_props)).cloned()?;
@@ -617,21 +538,19 @@ where
             child_cost_map
                 .get(&child_id)
                 .cloned()
-                .unwrap_or_else(C::default)
+                .unwrap_or_else(CostResult::default)
         };
 
         // Compute the cost
         let computed_cost = self.compute_cost(node, cost_closure);
 
         // Check if it satisfies required properties
-        if computed_cost.properties().satisfies(&required_props) {
+        if computed_cost.properties.satisfies(&required_props) {
             Some(computed_cost)
         } else {
             debug!(
                 "Expression {:?} provides {:?} but requires {:?}",
-                node,
-                computed_cost.properties(),
-                required_props
+                node, computed_cost.properties, required_props
             );
             None
         }
@@ -649,6 +568,3 @@ impl<L: Language> egg::CostFunction<L> for AstSize {
         enode.fold(1, |sum, id| sum + costs(id))
     }
 }
-
-/// A convenient type alias for a simple optimizer framework over a language and property using SimpleCost and usize as the cost domain.
-pub type SimpleOptimizerFramework<L, P> = OptimizerFramework<L, P, SimpleCost<P>, ()>;

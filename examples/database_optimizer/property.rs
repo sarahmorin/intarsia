@@ -1,7 +1,7 @@
 /// Property system for the database optimizer example.
 ///
 /// This demonstrates a simple property system that tracks whether data is sorted.
-use intarsia::framework::Property;
+use kymetica::framework::Property;
 
 /// A simple property system tracking sortedness of data.
 ///

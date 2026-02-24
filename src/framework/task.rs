@@ -21,14 +21,23 @@ use crate::framework::property::Property;
 /// ## Exploration Tasks
 /// Exploration generates logically equivalent expressions using rewrite rules.
 ///
-/// - `ExploreGroup`: Explore all expressions in an equivalence class and apply rewrite rules to generate new expressions
-/// - `ExploreChildren`: Explore the children of a specific expression node
+/// - `ExploreGroup`: Explore all expressions in an equivalence class
+/// - `ExploreExpr`: Explore a specific expression (apply rules to generate equivalents)
 ///
 /// ## Optimization Tasks
 /// Optimization selects the lowest-cost expression satisfying required properties.
 ///
 /// - `OptimizeGroup`: Find the best expression in an equivalence class for given properties
 /// - `OptimizeExpr`: Optimize a specific expression (compute its cost)
+///
+/// # Workflow
+///
+/// The typical task flow is:
+/// 1. `OptimizeGroup(id, props, false, false)` - Start optimizing a group
+/// 2. → `ExploreGroup(id, false)` - Ensure group is explored first
+/// 3. → `ExploreExpr(id, false)` for each expr - Explore each expression
+/// 4. → `OptimizeExpr(id, false)` for each expr - Optimize each expression
+/// 5. → Select best expression based on cost and properties
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Task<P: Property> {
     /// Optimize a group to find the best expression satisfying required properties.
@@ -61,11 +70,12 @@ pub enum Task<P: Property> {
     /// Exploration applies rewrite rules to generate new equivalent expressions.
     ExploreGroup(Id, bool),
 
-    /// Explore the children of a specific expression node to ensure they are explored and optimized.
+    /// Explore a specific expression by applying rewrite rules.
     ///
     /// Fields:
-    /// - `Id`: The expression node whose children we want to explore
+    /// - `Id`: The expression node to explore
+    /// - `bool`: Whether children have been explored (false on first visit)
     ///
-    /// Generates ExploreGroup tasks for each unexplored child group.
-    ExploreChildren(Id),
+    /// This task ensures all children are explored before applying rules to this expression.
+    ExploreExpr(Id, bool),
 }

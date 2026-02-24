@@ -5,8 +5,14 @@ pub mod framework;
 #[cfg(feature = "build-helpers")]
 pub mod build;
 
+// Macros for ISLE integration
+#[macro_use]
+pub mod macros;
+
 // Re-export commonly used items
 pub use framework::{
-    CostDomain, CostFunction, ExplorerHooks, OptimizerFramework, Property, PropertyAwareLanguage,
-    SimpleCost, SimpleOptimizerFramework, Task,
+    CostFunction, CostResult, ExplorerHooks, OptimizerFramework,
+    Property, PropertyAwareLanguage, Task,
 };
+
+extern crate egg;

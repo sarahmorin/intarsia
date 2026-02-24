@@ -6,8 +6,7 @@ use super::ConstructorVec;
 // --------------------------------------------
 use super::{DbOptimizer, language::Optlang, types::ColSet};
 
-use intarsia::framework::Task;
-use intarsia_macros::isle_multi_accessors;
+use kymetica::framework::Task;
 use log::warn;
 
 // Implement the Context trait for OptimizerContext, which is required by ISLE-generated code.
@@ -28,10 +27,6 @@ use log::warn;
 // The run method calls the explore and optimize entrypoints and handles merging and rebuilding the egraph as needed.
 #[allow(unused_variables)]
 impl Context for DbOptimizer {
-    // Define associated types for manually-implemented multi terms
-    type extractor_const_val_returns = ContextIterWrapper<Vec<value>, Self>;
-    type constructor_const_val_returns = ContextIterWrapper<Vec<Id>, Self>;
-
     fn extractor_combine_columns(&mut self, arg0: usize) -> Option<(usize, usize)> {
         warn!(
             "extractor_combine_columns doesn't make sense, we shouldn't call it in the first place"
@@ -135,71 +130,486 @@ impl Context for DbOptimizer {
         Some(id)
     }
 
-    fn extractor_const_val(&mut self, arg0: Id, returns: &mut Self::extractor_const_val_returns) -> () {
-        // Search the entire e-class for all constant value nodes
-        let eclass = self.egraph.find(arg0);
-        for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
-            match node {
-                Optlang::Int(i) => returns.push(value::Int { val: *i }),
-                Optlang::Bool(b) => returns.push(value::Bool { val: *b }),
-                Optlang::Str(s) => returns.push(value::Str { val: s.clone() }),
-                _ => {},
-            }
+    fn extractor_const_val(&mut self, arg0: Id) -> Option<value> {
+        let node = self.egraph.get_node(arg0);
+        match node {
+            Optlang::Int(i) => Some(value::Int { val: *i }),
+            Optlang::Bool(b) => Some(value::Bool { val: *b }),
+            Optlang::Str(s) => Some(value::Str { val: s.clone() }),
+            _ => None,
         }
     }
 
-    fn constructor_const_val(&mut self, arg0: &value, returns: &mut Self::constructor_const_val_returns) -> () {
+    fn constructor_const_val(&mut self, arg0: &value) -> Id {
         let node = match arg0 {
             value::Int { val } => Optlang::Int(*val),
             value::Bool { val } => Optlang::Bool(*val),
             value::Str { val } => Optlang::Str(val.clone()),
         };
         let (id, _) = self.egraph.add_with_flag(node);
-        returns.push(id);
+        id
     }
 
-    // For the extractors and constructors for the other operators, we can use the isle_multi_accessors macro to generate them automatically.
-    // This macro generates both the extractor and constructor for a given operator, following the patterns described above.
-    // The arguments to the macro are:
-    // - The operator variant (e.g., Optlang::Add)
-    // - The name of the extractor function to generate (e.g., extractor_add)
-    // - The name of the constructor function to generate (e.g., constructor_add)
-    // - The number of arguments the operator takes (e.g., 2 for Add)
-    isle_multi_accessors! {
-        // Binary logical operators
-        Optlang::And(extractor_and, constructor_and, 2);
-        Optlang::Or(extractor_or, constructor_or, 2);
+    fn extractor_add(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Add([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
 
-        // Unary logical operator
-        Optlang::Not(extractor_not, constructor_not, 1);
+    fn constructor_add(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Add([arg0, arg1]));
 
-        // Arithmetic operators
-        Optlang::Add(extractor_add, constructor_add, 2);
-        Optlang::Sub(extractor_sub, constructor_sub, 2);
-        Optlang::Mul(extractor_mul, constructor_mul, 2);
-        Optlang::Div(extractor_div, constructor_div, 2);
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
 
-        // Comparison operators
-        Optlang::Eq(extractor_eq, constructor_eq, 2);
-        Optlang::Lt(extractor_lt, constructor_lt, 2);
-        Optlang::Gt(extractor_gt, constructor_gt, 2);
-        Optlang::Le(extractor_le, constructor_le, 2);
-        Optlang::Ge(extractor_ge, constructor_ge, 2);
-        Optlang::Ne(extractor_ne, constructor_ne, 2);
+    fn extractor_sub(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Sub([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
 
-        // Logical relational operators
-        Optlang::Select(extractor_select, constructor_select, 2);
-        Optlang::Project(extractor_project, constructor_project, 2);
-        Optlang::Join(extractor_join, constructor_join, 3);
-        Optlang::Scan(extractor_scan, constructor_scan, 1);
+    fn constructor_sub(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Sub([arg0, arg1]));
 
-        // Physical relational operators
-        Optlang::TableScan(extractor_table_scan, constructor_table_scan, 1);
-        Optlang::IndexScan(extractor_index_scan, constructor_index_scan, 1);
-        Optlang::NestedLoopJoin(extractor_nested_loop_join, constructor_nested_loop_join, 3);
-        Optlang::HashJoin(extractor_hash_join, constructor_hash_join, 3);
-        Optlang::MergeJoin(extractor_merge_join, constructor_merge_join, 3);
-        Optlang::Sort(extractor_sort, constructor_sort, 2);
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_mul(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Mul([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_mul(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Mul([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_div(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Div([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_div(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Div([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_eq(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Eq([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_eq(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Eq([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_lt(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Lt([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_lt(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Lt([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_gt(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Gt([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_gt(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Gt([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_le(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Le([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_le(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Le([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_ge(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Ge([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_ge(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Ge([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_ne(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Ne([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_ne(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Ne([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_and(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::And([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_and(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::And([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_or(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Or([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_or(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Or([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_not(&mut self, arg0: Id) -> Option<Id> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Not(id1) = node {
+            Some(*id1)
+        } else {
+            None
+        }
+    }
+
+    fn constructor_not(&mut self, arg0: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Not(arg0));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_select(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Select([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_select(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Select([arg0, arg1]));
+
+        // If we created a new e-class, push tasks to explore AND optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_project(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Project([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_project(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Project([arg0, arg1]));
+
+        // If we created a new e-class, push tasks to explore AND optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_join(&mut self, arg0: Id) -> Option<(Id, Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Join([id1, id2, id3]) = node {
+            Some((*id1, *id2, *id3))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_join(&mut self, arg0: Id, arg1: Id, arg2: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Join([arg0, arg1, arg2]));
+
+        // If we created a new e-class, push tasks to explore AND optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_scan(&mut self, arg0: Id) -> Option<Id> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Scan(id) = node {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    fn constructor_scan(&mut self, arg0: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Scan(arg0));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_table_scan(&mut self, arg0: Id) -> Option<Id> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::TableScan(id) = node {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    fn constructor_table_scan(&mut self, arg0: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::TableScan(arg0));
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_index_scan(&mut self, arg0: Id) -> Option<Id> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::IndexScan(id) = node {
+            Some(*id)
+        } else {
+            None
+        }
+    }
+
+    fn constructor_index_scan(&mut self, arg0: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::IndexScan(arg0));
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_nested_loop_join(&mut self, arg0: Id) -> Option<(Id, Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::NestedLoopJoin([id1, id2, id3]) = node {
+            Some((*id1, *id2, *id3))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_nested_loop_join(&mut self, arg0: Id, arg1: Id, arg2: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self
+            .egraph
+            .add_with_flag(Optlang::NestedLoopJoin([arg0, arg1, arg2]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_hash_join(&mut self, arg0: Id) -> Option<(Id, Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::HashJoin([id1, id2, id3]) = node {
+            Some((*id1, *id2, *id3))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_hash_join(&mut self, arg0: Id, arg1: Id, arg2: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self
+            .egraph
+            .add_with_flag(Optlang::HashJoin([arg0, arg1, arg2]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_merge_join(&mut self, arg0: Id) -> Option<(Id, Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::MergeJoin([id1, id2, id3]) = node {
+            Some((*id1, *id2, *id3))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_merge_join(&mut self, arg0: Id, arg1: Id, arg2: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self
+            .egraph
+            .add_with_flag(Optlang::MergeJoin([arg0, arg1, arg2]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
+    }
+
+    fn extractor_sort(&mut self, arg0: Id) -> Option<(Id, Id)> {
+        let node = self.egraph.get_node(arg0);
+        if let Optlang::Sort([id1, id2]) = node {
+            Some((*id1, *id2))
+        } else {
+            None
+        }
+    }
+
+    fn constructor_sort(&mut self, arg0: Id, arg1: Id) -> Id {
+        // Construct the new node and add it to the egraph
+        let (id, is_new) = self.egraph.add_with_flag(Optlang::Sort([arg0, arg1]));
+
+        // If we created a new e-class, push a task to explore/optimize it
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
+        id
     }
 
     type extractor_explore_returns = ContextIterWrapper<ConstructorVec<Id>, Self>;

@@ -25,7 +25,7 @@ use crate::framework::property::Property;
 /// impl PropertyAwareLanguage<SimpleProperty> for QueryLang {
 ///     fn property_req(&self, child_index: usize) -> SimpleProperty {
 ///         match self {
-///             // Merge join requires both inputs to be sorted, but has no requirements for the predicate child
+///             // Merge join requires both inputs to be sorted
 ///             QueryLang::MergeJoin(_) if child_index <= 1 => SimpleProperty::Sorted,
 ///             
 ///             // Hash join doesn't require sorted inputs
@@ -44,7 +44,6 @@ use crate::framework::property::Property;
 /// - Consider the semantics of your operators when specifying requirements
 /// - Requirements should be minimal (don't over-specify)
 /// - Child index is 0-based (first child is index 0)
-/// - If `child_index` is out of bounds (greater than or equal to the number of children), return `P::bottom()`
 pub trait PropertyAwareLanguage<P: Property>: Language {
     /// Determine what properties this operator requires from a specific child.
     ///

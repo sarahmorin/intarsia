@@ -22,10 +22,9 @@
 /// 1. Define your language using egg's `define_language!` macro
 /// 2. Define your property type and implement [`Property`]
 /// 3. Implement [`PropertyAwareLanguage`] for your language
-/// 4. (Optionally) Create user data struct to hold domain-specific information
+/// 4. Create user data struct to hold domain-specific information
 /// 5. Instantiate [`OptimizerFramework`] with your types
-/// 6. Define a cost domain and implement [`CostDomain`] for it with respect to your properties
-/// 6. Implement [`CostFunction`] to define cost computation in your cost domain
+/// 6. Implement [`CostFunction`] to define cost computation
 /// 7. Implement [`ExplorerHooks`] to integrate rewrite rules (e.g., ISLE)
 /// 8. If using ISLE, implement the generated `Context` trait
 ///
@@ -49,14 +48,13 @@
 /// enum MyProperty {
 ///     Sorted,
 ///     Unsorted,
-///     Bottom, // No requirement
 /// }
 ///
 /// impl Property for MyProperty {
 ///     fn satisfies(&self, required: &Self) -> bool {
 ///         // ... implement
 ///     }
-///     fn bottom() -> Self { MyProperty::Bottom }
+///     fn bottom() -> Self { MyProperty::Unsorted }
 /// }
 ///
 /// // 3. Implement PropertyAwareLanguage
@@ -71,11 +69,11 @@
 ///     // domain-specific data
 /// }
 ///
-/// // 5. Create type alias for convenience
+/// // 5. Create type alias
 /// type MyOptimizer = OptimizerFramework<MyLang, MyProperty, MyUserData>;
 ///
 /// // 6-8. Implement traits on MyOptimizer
-/// impl CostFunction<MyLang, MyProperty, SimpleCost<MyProperty>> for MyOptimizer { /* ... */ }
+/// impl CostFunction<MyLang, MyProperty> for MyOptimizer { /* ... */ }
 /// impl ExplorerHooks for MyOptimizer { /* ... */ }
 /// // impl Context for MyOptimizer { /* ... */ } // if using ISLE
 ///
@@ -87,6 +85,7 @@
 /// optimizer.run(root_id);
 /// let best_plan = optimizer.extract(root_id);
 /// ```
+
 pub mod cost;
 pub mod hooks;
 pub mod language_ext;
@@ -95,9 +94,9 @@ pub mod property;
 pub mod task;
 
 // Re-export main types for convenience
-pub use cost::{CostDomain, CostFunction, SimpleCost};
+pub use cost::{CostFunction, CostResult};
 pub use hooks::ExplorerHooks;
 pub use language_ext::PropertyAwareLanguage;
-pub use optimizer::{OptimizerFramework, SimpleOptimizerFramework};
+pub use optimizer::OptimizerFramework;
 pub use property::Property;
 pub use task::Task;
