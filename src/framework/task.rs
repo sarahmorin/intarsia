@@ -29,15 +29,6 @@ use crate::framework::property::Property;
 ///
 /// - `OptimizeGroup`: Find the best expression in an equivalence class for given properties
 /// - `OptimizeExpr`: Optimize a specific expression (compute its cost)
-///
-/// # Workflow
-///
-/// The typical task flow is:
-/// 1. `OptimizeGroup(id, props, false, false)` - Start optimizing a group
-/// 2. → `ExploreGroup(id, false)` - Ensure group is explored first
-/// 3. → `ExploreExpr(id, false)` for each expr - Explore each expression
-/// 4. → `OptimizeExpr(id, false)` for each expr - Optimize each expression
-/// 5. → Select best expression based on cost and properties
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Task<P: Property> {
     /// Optimize a group to find the best expression satisfying required properties.

@@ -3,18 +3,80 @@
 /// This module provides a generic cost model that supports property-aware optimization.
 /// Users implement the `CostFunction` trait to define how to compute costs for their
 /// specific language and property system.
-
 use egg::{Id, Language};
 use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::framework::property::Property;
 
-/// Result of computing the cost of an expression.
+/// Trait for cost domains used by the optimizer.
 ///
-/// This combines a numeric cost value with the properties that the expression provides.
-/// The optimizer uses both the cost and properties to select the best expression that
-/// satisfies required properties.
+/// A cost domain combines a raw cost value with properties and potentially other
+/// domain-specific information (e.g., cardinality estimates, resource usage).
+/// The cost domain must provide a partial order for comparing costs.
+///
+/// # Type Parameters
+///
+/// * `P` - The property type
+/// * `D` - The raw cost type (e.g., usize, f64, or a custom struct)
+///
+/// # Required Methods
+///
+/// - `cost()`: Returns the raw numeric cost for ordering
+/// - `properties()`: Returns the properties this cost represents
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// // Simple cost domain with just cost and properties
+/// impl<P: Property> CostDomain<P> for SimpleCost<P> {
+///     fn cost(&self) -> usize { self.cost }
+///     fn properties(&self) -> &P { &self.properties }
+/// }
+///
+/// // Rich cost domain with cardinality estimates
+/// struct DbCost<P: Property, D: usize> {
+///     cost: D,
+///     properties: P,
+///     cardinality: Option<usize>,
+///     blocks: Option<usize>,
+/// }
+///
+/// impl<P: Property> CostDomain<P> for DbCost<P> {
+///     fn cost(&self) -> usize { self.cost }
+///     fn properties(&self) -> &P { &self.properties }
+/// }
+/// ```
+///
+///
+/// # Implementation Notes
+/// - The `cost()` method is used for ordering costs - lower values are better.
+/// - The `properties()` method is used to determine if the expression satisfies property requirements.
+/// - Implement `PartialOrd` for your cost domain to define how costs are compared. Typically, you would compare raw costs first, and then use properties as a tiebreaker if needed.
+/// - Implement `Default` for your cost domain to provide a default "worst" cost (e.g., maximum cost value) we should avoid extracting.
+/// - Implement `PartialEq` and `Eq` to define when two costs are considered equal, especially if you are embedding extra information for computing costs that you *don't* want to use when comparing costs.
+/// - Consider using saturating arithmetic for cost computations to avoid overflow (e.g., `saturating_add`, `saturating_mul
+///
+pub trait CostDomain<P: Property, D: Ord>:
+    Clone + Debug + PartialEq + Eq + PartialOrd + Hash + Default
+{
+    /// Get the raw numeric cost value.
+    ///
+    /// This is used for ordering costs - lower values are better.
+    fn cost(&self) -> D;
+
+    /// Get the properties that this cost represents.
+    fn properties(&self) -> &P;
+
+    // TODO: Should I just require a min() and max() instead of using default as max??
+}
+
+/// A simple implementation of the `CostDomain` trait.
+///
+/// This combines a numeric cost value with properties. It's provided as a ready-to-use
+/// cost domain for simple use cases. If you need more complex cost modeling (e.g., with
+/// cardinality estimates, block counts, or resource consumption), implement your own
+/// type that implements `CostDomain`.
 ///
 /// # Type Parameters
 ///
@@ -36,7 +98,7 @@ use crate::framework::property::Property;
 /// }
 /// ```
 #[derive(Debug, Clone, Eq, Hash)]
-pub struct CostResult<P: Property> {
+pub struct SimpleCost<P: Property> {
     /// The numeric cost of this expression.
     ///
     /// Lower costs are better. The specific units and scale depend on your cost model.
@@ -44,53 +106,68 @@ pub struct CostResult<P: Property> {
     /// - Abstract cost units (CPU + I/O operations)
     /// - Estimated execution time (milliseconds, seconds)
     /// - Resource consumption (bytes transferred, disk I/O)
-    pub cost: usize,
+    raw_cost: usize,
 
     /// The properties that this expression provides.
     ///
     /// These properties are used to determine if the expression can satisfy
     /// the property requirements of parent operators.
-    pub properties: P,
+    props: P,
 }
 
-impl<P: Property> CostResult<P> {
+impl<P: Property> SimpleCost<P> {
     /// Create a new cost result.
     pub fn new(cost: usize, properties: P) -> Self {
-        Self { cost, properties }
+        Self {
+            raw_cost: cost,
+            props: properties,
+        }
     }
 
     /// Create a cost result with bottom (no) properties.
     pub fn simple(cost: usize) -> Self {
         Self {
-            cost,
-            properties: P::bottom(),
+            raw_cost: cost,
+            props: P::bottom(),
         }
     }
 }
 
-impl<P: Property> Default for CostResult<P> {
+impl<P: Property> CostDomain<P, usize> for SimpleCost<P> {
+    fn cost(&self) -> usize {
+        self.raw_cost
+    }
+
+    fn properties(&self) -> &P {
+        &self.props
+    }
+}
+
+impl<P: Property> Default for SimpleCost<P> {
     /// Default cost is maximum (worst possible).
     fn default() -> Self {
         Self {
-            cost: usize::MAX,
-            properties: P::bottom(),
+            raw_cost: usize::MAX,
+            props: P::bottom(),
         }
     }
 }
 
-impl<P: Property> PartialEq for CostResult<P> {
+impl<P: Property> PartialEq for SimpleCost<P> {
     fn eq(&self, other: &Self) -> bool {
-        self.cost == other.cost && self.properties == other.properties
+        self.raw_cost == other.raw_cost && self.props == other.props
     }
 }
 
-impl<P: Property> PartialOrd for CostResult<P> {
+impl<P: Property> PartialOrd for SimpleCost<P> {
     /// Compare costs. Lower costs are better.
     ///
-    /// If costs are equal, we don't impose an ordering based on properties.
-    /// The optimizer will handle property requirements separately.
+    /// This implementation compares raw costs first, and then uses properties as a tiebreaker if costs are equal.
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        self.cost.partial_cmp(&other.cost)
+        match self.raw_cost.partial_cmp(&other.raw_cost) {
+            Some(std::cmp::Ordering::Equal) => self.props.partial_cmp(&other.props),
+            other => other,
+        }
     }
 }
 
@@ -104,64 +181,59 @@ impl<P: Property> PartialOrd for CostResult<P> {
 ///
 /// * `L` - The language type (must implement `Language`)
 /// * `P` - The property type
+/// * `D` - The domain type for the raw cost value (must implement `Ord`)
+/// * `C` - The cost domain type (must implement `CostDomain<P, D>`)
 ///
 /// # Implementation Notes
 ///
 /// Your cost function should:
 /// - Be deterministic (same inputs always produce same output)
 /// - Use the provided closure to get child costs
-/// - Return both a numeric cost and the properties the expression provides
+/// - Return a cost domain instance with both numeric cost and properties
 /// - Handle saturation for arithmetic operations (use `saturating_add`, etc.)
 /// - Consider domain-specific factors (I/O, CPU, memory, network, etc.)
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// impl CostFunction<QueryLang, SimpleProperty> for MyOptimizer {
-///     fn compute_cost<C>(&self, node: &QueryLang, mut costs: C) -> CostResult<SimpleProperty>
+/// // Using the simple CostResult domain
+/// impl CostFunction<QueryLang, SimpleProperty, SimpleCost<SimpleProperty>> for MyOptimizer {
+///     fn compute_cost<CF>(&self, node: &QueryLang, mut costs: CF)
+///         -> CostResult<SimpleProperty>
 ///     where
-///         C: FnMut(Id) -> CostResult<SimpleProperty>,
+///         CF: FnMut(Id) -> CostResult<SimpleProperty>,
 ///     {
 ///         match node {
-///             // Leaf nodes
 ///             QueryLang::Constant(_) => CostResult::simple(0),
-///             
-///             // Table scan: I/O cost proportional to table size
-///             QueryLang::TableScan(table_id) => {
-///                 let size = self.user_data.catalog.get_table_size(*table_id);
-///                 CostResult::new(size * IO_COST, SimpleProperty::Unsorted)
-///             }
-///             
-///             // Binary operations: cost of children + operation cost
 ///             QueryLang::Add([left, right]) => {
 ///                 let left_cost = costs(*left);
 ///                 let right_cost = costs(*right);
-///                 let total = left_cost.cost.saturating_add(right_cost.cost).saturating_add(1);
+///                 let total = left_cost.cost().saturating_add(right_cost.cost()).saturating_add(1);
 ///                 CostResult::simple(total)
 ///             }
-///             
-///             // Sort: expensive operation that produces sorted output
-///             QueryLang::Sort([input, _cols]) => {
-///                 let input_cost = costs(*input);
-///                 if input_cost.properties == SimpleProperty::Sorted {
-///                     // Already sorted - no additional cost
-///                     input_cost
-///                 } else {
-///                     // N log N cost for sorting
-///                     let sort_cost = estimate_sort_cost(input_size);
-///                     CostResult::new(
-///                         input_cost.cost.saturating_add(sort_cost),
-///                         SimpleProperty::Sorted
-///                     )
-///                 }
+///             // ... other operators
+///         }
+///     }
+/// }
+///
+/// // Using a custom DbCost domain with cardinality
+/// impl CostFunction<QueryLang, SimpleProperty, DbCost<SimpleProperty>> for MyOptimizer {
+///     fn compute_cost<CF>(&self, node: &QueryLang, mut costs: CF)
+///         -> DbCost<SimpleProperty>
+///     where
+///         CF: FnMut(Id) -> DbCost<SimpleProperty>,
+///     {
+///         match node {
+///             QueryLang::TableScan(table_id) => {
+///                 let rows = self.user_data.catalog.get_rows(*table_id);
+///                 DbCost::new(rows * 1000, Some(rows), None, SimpleProperty::Unsorted)
 ///             }
-///             
 ///             // ... other operators
 ///         }
 ///     }
 /// }
 /// ```
-pub trait CostFunction<L: Language, P: Property> {
+pub trait CostFunction<L: Language, P: Property, D: Ord, C: CostDomain<P, D>> {
     /// Compute the cost of an expression node.
     ///
     /// # Arguments
@@ -171,7 +243,8 @@ pub trait CostFunction<L: Language, P: Property> {
     ///
     /// # Returns
     ///
-    /// A `CostResult` containing the cost and properties of this expression.
+    /// A cost domain instance (e.g., `SimpleCost<P>` or custom domain)
+    /// containing the cost, properties, and any other domain-specific information.
     ///
     /// # Closure Behavior
     ///
@@ -202,7 +275,7 @@ pub trait CostFunction<L: Language, P: Property> {
     /// - Some operators preserve properties (e.g., filter preserves sortedness)
     /// - Some operators produce new properties (e.g., sort produces sorted data)
     /// - Some operators destroy properties (e.g., hash join produces unsorted data)
-    fn compute_cost<C>(&self, node: &L, costs: C) -> CostResult<P>
+    fn compute_cost<CF>(&self, node: &L, costs: CF) -> C
     where
-        C: FnMut(Id) -> CostResult<P>;
+        CF: FnMut(Id) -> C;
 }
