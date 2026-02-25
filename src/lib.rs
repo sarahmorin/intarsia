@@ -11,8 +11,8 @@ pub mod macros;
 
 // Re-export commonly used items
 pub use framework::{
-    CostFunction, CostResult, ExplorerHooks, OptimizerFramework,
-    Property, PropertyAwareLanguage, Task,
+    CostDomain, CostFunction, ExplorerHooks, OptimizerFramework, Property, PropertyAwareLanguage,
+    SimpleCost, Task,
 };
 
 extern crate egg;
