@@ -7,7 +7,7 @@ use log::{debug, warn};
 use std::collections::{HashMap, HashSet};
 
 use crate::framework::{
-    cost::{CostFunction, CostResult},
+    cost::{CostDomain, CostFunction, SimpleCost},
     hooks::ExplorerHooks,
     language_ext::PropertyAwareLanguage,
     property::Property,
@@ -23,6 +23,7 @@ use crate::framework::{
 ///
 /// * `L` - The language type (must implement `Language` and `PropertyAwareLanguage<P>`)
 /// * `P` - The property type (must implement `Property`)
+/// * `C` - The cost domain type (must implement `CostDomain<P>`)
 /// * `UserData` - User-defined data accessible during optimization
 ///
 /// # Examples
@@ -34,8 +35,11 @@ use crate::framework::{
 ///     colsets: BiMap<ColSet, ColSetId>,
 /// }
 ///
-/// // Create type alias for convenience
-/// type MyOptimizer = OptimizerFramework<QueryLang, SimpleProperty, DbUserData>;
+/// // Create type alias for convenience using simple CostResult
+/// type MyOptimizer = OptimizerFramework<QueryLang, SimpleProperty, SimpleCost<SimpleProperty>, DbUserData>;
+///
+/// // Or with a custom cost domain
+/// type DbOptimizer = OptimizerFramework<QueryLang, SimpleProperty, DbCost<SimpleProperty>, DbUserData>;
 ///
 /// // Create optimizer instance
 /// let user_data = DbUserData { /* ... */ };
@@ -51,11 +55,14 @@ use crate::framework::{
 /// // Extract best plan
 /// let best_plan = optimizer.extract(root_id);
 /// ```
-pub struct OptimizerFramework<L, P, UserData>
+pub struct OptimizerFramework<L, P, C, D, UserData>
 where
     L: Language + PropertyAwareLanguage<P>,
     P: Property,
+    D: Ord,
+    C: CostDomain<P, D>,
 {
+    __phantom_data: std::marker::PhantomData<(L, P, C, D)>, // To hold generic type parameters
     /// The e-graph holding all expressions and their equivalences
     pub egraph: EGraph<L, ()>,
 
@@ -86,13 +93,15 @@ where
     /// Memoized costs for each (group, property) pair
     ///
     /// Stores the cost of the best expression for each (group_id, required_properties) pair.
-    costs: HashMap<(Id, P), CostResult<P>>,
+    costs: HashMap<(Id, P), C>,
 }
 
-impl<L, P, UserData> OptimizerFramework<L, P, UserData>
+impl<L, P, C, D, UserData> OptimizerFramework<L, P, C, D, UserData>
 where
     L: Language + PropertyAwareLanguage<P>,
     P: Property,
+    C: CostDomain<P, D>,
+    D: Ord,
 {
     /// Create a new optimizer framework instance.
     ///
@@ -101,6 +110,7 @@ where
     /// * `user_data` - User-defined data accessible during optimization
     pub fn new(user_data: UserData) -> Self {
         Self {
+            __phantom_data: std::marker::PhantomData,
             egraph: EGraph::default(),
             user_data,
             task_stack: Vec::new(),
@@ -151,7 +161,7 @@ where
     /// After `run()` completes, use `extract()` to get the best expression.
     pub fn run(&mut self, id: Id)
     where
-        Self: ExplorerHooks<L> + CostFunction<L, P>,
+        Self: ExplorerHooks<L> + CostFunction<L, P, D, C>,
     {
         // Push the initial optimization task with no property requirements
         self.task_stack
@@ -182,6 +192,7 @@ where
     /// Extract the best expression for the given group.
     ///
     /// Returns the lowest-cost expression satisfying the default (bottom) properties.
+    /// Assumes that `run()` has already been called to perform optimization.
     ///
     /// # Arguments
     ///
@@ -201,6 +212,8 @@ where
 
     /// Extract the best expression along with its cost.
     ///
+    /// Assumes that `run()` has already been called to perform optimization.
+    ///
     /// # Arguments
     ///
     /// * `id` - The ID of the group to extract
@@ -208,11 +221,15 @@ where
     /// # Returns
     ///
     /// A tuple of (cost, expression) for the best plan
-    pub fn extract_with_cost(&self, id: Id) -> (CostResult<P>, RecExpr<L>) {
+    pub fn extract_with_cost(&self, id: Id) -> (C, RecExpr<L>) {
         self.extract_with_property(id, P::bottom())
     }
 
     /// Extract the best expression satisfying specific property requirements.
+    ///
+    /// Assumes that `run()` has already been called to perform optimization.
+    /// If no expression satisfies the required properties, this will fall back to extracting
+    /// the best expression by AstSize without property requirements, and will log a warning.
     ///
     /// # Arguments
     ///
@@ -222,7 +239,7 @@ where
     /// # Returns
     ///
     /// A tuple of (cost, expression) for the best plan satisfying the properties
-    fn extract_with_property(&self, id: Id, props: P) -> (CostResult<P>, RecExpr<L>) {
+    fn extract_with_property(&self, id: Id, props: P) -> (C, RecExpr<L>) {
         let eclass = self.egraph.find(id);
 
         // Look up the best node for this (eclass, property) pair
@@ -230,13 +247,13 @@ where
 
         if best_node_id.is_none() {
             warn!(
-                "No optimized expression found for eclass {:?} with property {:?}",
+                "No optimized expression found for eclass {:?} with property {:?}\n\nFalling back to arbitrary AstSize extraction without property requirements.\nThis may indicate that optimization did not complete or that no expression satisfies the required properties.",
                 eclass, props
             );
             // Fall back to egg's extractor if we haven't optimized this eclass
             let extractor = Extractor::new(&self.egraph, AstSize);
-            let (cost, rec_expr) = extractor.find_best(eclass);
-            return (CostResult::new(cost, P::bottom()), rec_expr);
+            let (_cost, rec_expr) = extractor.find_best(eclass);
+            return (C::default(), rec_expr);
         }
 
         let best_node_id = *best_node_id.unwrap();
@@ -247,7 +264,7 @@ where
             .costs
             .get(&(eclass, props.clone()))
             .cloned()
-            .unwrap_or_else(CostResult::default);
+            .unwrap_or_else(C::default);
 
         // Recursively extract children with their required properties
         let mut expr = RecExpr::default();
@@ -331,7 +348,7 @@ where
     /// This explores the group and optimizes all expressions, then selects the best one.
     fn run_optimize_group(&mut self, task: Task<P>)
     where
-        Self: ExplorerHooks<L> + CostFunction<L, P>,
+        Self: ExplorerHooks<L> + CostFunction<L, P, D, C>,
     {
         let (id, props, explored, optimized) = match task {
             Task::OptimizeGroup(id, props, explored, optimized) => (id, props, explored, optimized),
@@ -371,7 +388,7 @@ where
 
         // Select the best expression in this group
         let mut best_expr: Option<Id> = None;
-        let mut best_cost = CostResult::<P>::default(); // Start with max cost
+        let mut best_cost = C::default(); // Start with max cost
 
         for (node_id, node) in self.egraph.nodes_in_class(id) {
             // Compute cost with required properties
@@ -396,6 +413,8 @@ where
                 "Warning: No valid expression found for group {:?} with props {:?}",
                 id, props
             );
+            // QUESTION: Should we not mark this group as optimized if we didn't find any valid expression?
+            // Or should we store a sentinel value to indicate that we've optimized but found nothing?
         }
 
         self.optimizing_groups.remove(&(id, props));
@@ -406,7 +425,7 @@ where
     /// This optimizes all children of the expression first.
     fn run_optimize_expr(&mut self, task: Task<P>)
     where
-        Self: CostFunction<L, P>,
+        Self: CostFunction<L, P, D, C>,
     {
         let (id, children_optimized) = match task {
             Task::OptimizeExpr(id, children_optimized) => (id, children_optimized),
@@ -440,6 +459,7 @@ where
         }
 
         // Children are optimized - the cost computation happens in run_optimize_group
+        // QUESTION: Should we do expression level bookkeeping here or just rely on group-level optimization?
     }
 
     /// Run an explore group task.
@@ -521,12 +541,13 @@ where
     ///
     /// Returns None if any child doesn't have memoized costs or if the expression
     /// doesn't satisfy the required properties.
-    fn compute_expr_cost_with_props(&self, node: &L, required_props: P) -> Option<CostResult<P>>
+    // QUESTION: Should we distinguish between "child doesn't have memoized cost yet" vs "child's best expression doesn't satisfy required properties"?
+    fn compute_expr_cost_with_props(&self, node: &L, required_props: P) -> Option<C>
     where
-        Self: CostFunction<L, P>,
+        Self: CostFunction<L, P, D, C>,
     {
         // Build a map of child costs with their required properties
-        let mut child_cost_map: HashMap<Id, CostResult<P>> = HashMap::new();
+        let mut child_cost_map: HashMap<Id, C> = HashMap::new();
         for (i, child_id) in node.children().iter().enumerate() {
             let child_req_props = node.property_req(i);
             let cost = self.costs.get(&(*child_id, child_req_props)).cloned()?;
@@ -538,19 +559,21 @@ where
             child_cost_map
                 .get(&child_id)
                 .cloned()
-                .unwrap_or_else(CostResult::default)
+                .unwrap_or_else(C::default)
         };
 
         // Compute the cost
         let computed_cost = self.compute_cost(node, cost_closure);
 
         // Check if it satisfies required properties
-        if computed_cost.properties.satisfies(&required_props) {
+        if computed_cost.properties().satisfies(&required_props) {
             Some(computed_cost)
         } else {
             debug!(
                 "Expression {:?} provides {:?} but requires {:?}",
-                node, computed_cost.properties, required_props
+                node,
+                computed_cost.properties(),
+                required_props
             );
             None
         }
@@ -568,3 +591,6 @@ impl<L: Language> egg::CostFunction<L> for AstSize {
         enode.fold(1, |sum, id| sum + costs(id))
     }
 }
+
+/// A convenient type alias for a simple optimizer framework over a language and property using SimpleCost and usize as the cost domain.
+pub type SimpleOptimizerFramework<L, P> = OptimizerFramework<L, P, SimpleCost<P>, usize, ()>;
