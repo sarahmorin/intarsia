@@ -2,7 +2,7 @@
 ///
 /// This cost domain extends the simple cost+properties model with database-specific
 /// metrics like cardinality (row count estimates) and block counts.
-use intarsia::CostDomain;
+use kymetica::CostDomain;
 
 use super::property::SimpleProperty;
 
@@ -52,8 +52,7 @@ impl DbCost {
     }
 }
 
-impl CostDomain<SimpleProperty> for DbCost {
-    type RawCost = usize;
+impl CostDomain<SimpleProperty, usize> for DbCost {
     fn cost(&self) -> usize {
         self.cost
     }
