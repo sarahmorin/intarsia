@@ -21,7 +21,7 @@ cranelift-isle = { version = "0.128.1", features = [
     "log",
     "logging",
 ], optional = true }
-egg = "0.11.0"
+egg = { git = "https://github.com/sarahmorin/egg.git", branch = "main" }
 indexmap = "2.13.0"
 log = "0.4.29"
 
@@ -32,5 +32,6 @@ env_logger = "0.11"
 name = "database_optimizer"
 path = "examples/database_optimizer/main.rs"
 
-[patch.crates-io]
-egg = { path = "../egg" }
+# HACK: Use a local path dependency for egg during development to avoid git overhead and allow for easy code changes
+# [patch.crates-io]
+# egg = { path = "../egg" }
