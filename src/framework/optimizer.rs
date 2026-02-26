@@ -55,6 +55,7 @@ use crate::framework::{
 /// // Extract best plan
 /// let best_plan = optimizer.extract(root_id);
 /// ```
+#[derive(Debug, Clone)]
 pub struct OptimizerFramework<L, P, C, D, UserData>
 where
     L: Language + PropertyAwareLanguage<P>,

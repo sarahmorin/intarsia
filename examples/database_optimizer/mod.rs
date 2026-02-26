@@ -9,6 +9,10 @@ pub mod language;
 pub mod property;
 pub mod types;
 
+// Unit tests demonstrating usage patterns and validating implementation
+#[cfg(test)]
+mod tests;
+
 // ISLE-generated Context trait implementation (must be after types/language/property)
 #[allow(dead_code, unused_variables, unused_imports, non_snake_case)]
 #[allow(irrefutable_let_patterns, unused_assignments, non_camel_case_types)]
