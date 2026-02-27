@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "intarsia-build", "intarsia-macros"]
+members = [".", "intarsia-macros"]
 resolver = "3"
 
 [package]
