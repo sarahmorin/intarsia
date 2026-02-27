@@ -1,5 +1,5 @@
 [package]
-name = "opt-macros"
+name = "intarsia-macros"
 version = "0.1.0"
 edition = "2024"
 authors = ["Sarah Morin <sarahmorin@berkeley.edu>"]

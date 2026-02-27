@@ -2,7 +2,7 @@
 ///
 /// This cost domain extends the simple cost+properties model with database-specific
 /// metrics like cardinality (row count estimates) and block counts.
-use kymetica::CostDomain;
+use intarsia::CostDomain;
 
 use super::property::SimpleProperty;
 

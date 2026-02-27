@@ -1,9 +1,9 @@
 [workspace]
-members = [".", "opt-macros"]
+members = [".", "intarsia-macros"]
 resolver = "3"
 
 [package]
-name = "opt-framework"
+name = "intarsia"
 version = "0.1.0"
 edition = "2024"
 authors = ["Sarah Morin <sarahmorin@berkeley.edu>"]
@@ -31,7 +31,7 @@ cranelift-isle = { version = "0.128.1", features = [
 egg = { git = "https://github.com/sarahmorin/egg.git", branch = "main" }
 indexmap = "2.13.0"
 log = "0.4.29"
-optimizer-macros = { path = "opt-macros" }
+intarsia-macros = { path = "intarsia-macros" }
 
 [dev-dependencies]
 env_logger = "0.11"

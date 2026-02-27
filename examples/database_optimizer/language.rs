@@ -2,9 +2,8 @@
 ///
 /// This module defines the Optlang language for database query optimization
 /// and implements property requirements for each operator.
-
-use egg::{define_language, Id};
-use kymetica::framework::PropertyAwareLanguage;
+use egg::{Id, define_language};
+use intarsia::framework::PropertyAwareLanguage;
 
 use super::property::SimpleProperty;
 use super::types::{ColSetId, IndexId, TableId};
@@ -16,13 +15,13 @@ define_language! {
         Int(i64),
         Bool(bool),
         Str(String),
-        
+
         // Arithmetic Operations
         "+" = Add([Id; 2]),
         "-" = Sub([Id; 2]),
         "*" = Mul([Id; 2]),
         "/" = Div([Id; 2]),
-        
+
         // Comparison Operations
         "==" = Eq([Id; 2]),
         "<" = Lt([Id; 2]),
@@ -30,18 +29,18 @@ define_language! {
         "<=" = Le([Id; 2]),
         ">=" = Ge([Id; 2]),
         "!=" = Ne([Id; 2]),
-        
+
         // Logical Operations
         "AND" = And([Id; 2]),
         "OR" = Or([Id; 2]),
         "NOT" = Not(Id),
-        
+
         // Logical Relational Operations
         "SCAN" = Scan(Id),
         "SELECT" = Select([Id; 2]),
         "PROJECT" = Project([Id; 2]),
         "JOIN" = Join([Id; 3]),
-        
+
         // Physical Relational Operations
         "TABLE_SCAN" = TableScan(Id),
         "INDEX_SCAN" = IndexScan(Id),
@@ -49,7 +48,7 @@ define_language! {
         "HASH_JOIN" = HashJoin([Id; 3]),
         "MERGE_JOIN" = MergeJoin([Id; 3]),
         "SORT" = Sort([Id; 2]),
-        
+
         // Data Sources
         Table(TableId),
         ColSet(ColSetId),
@@ -72,7 +71,7 @@ impl PropertyAwareLanguage<SimpleProperty> for Optlang {
                     SimpleProperty::Bottom
                 }
             }
-            
+
             // Most operators don't require specific properties from their children
             // They work with any sortedness
             _ => SimpleProperty::Bottom,

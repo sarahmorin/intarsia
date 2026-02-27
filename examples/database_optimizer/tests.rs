@@ -1,4 +1,4 @@
-use kymetica::{CostDomain, CostFunction};
+use intarsia::{CostDomain, CostFunction};
 use log::{debug, info};
 
 use super::catalog::Catalog;

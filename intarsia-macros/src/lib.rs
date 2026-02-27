@@ -416,7 +416,7 @@ impl Parse for IsleIntegrationArgs {
 ///
 /// ```ignore
 /// // In your optimizer module (e.g., examples/my_optimizer/mod.rs)
-/// use opt_framework::isle_integration;
+/// use intarsia::isle_integration;
 ///
 /// // First, declare the rules module with the path to generated code
 /// #[allow(dead_code, unused_variables, unused_imports, non_snake_case)]
@@ -517,7 +517,7 @@ impl Parse for IsleIntegrationFullArgs {
 /// # Example
 ///
 /// ```ignore
-/// use opt_framework::isle_integration_full;
+/// use intarsia::isle_integration_full;
 ///
 /// // Assuming isle/rules.rs exists relative to current module
 /// isle_integration_full! {
