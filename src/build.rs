@@ -8,16 +8,16 @@
 //! In your `Cargo.toml`:
 //! ```toml
 //! [dependencies]
-//! kymetica = "0.1"
+//! intarsia = "0.1"
 //!
 //! [build-dependencies]
-//! kymetica = { version = "0.1", features = ["build-helpers"] }
+//! intarsia = { version = "0.1", features = ["build-helpers"] }
 //! ```
 //!
 //! In your `build.rs`:
 //! ```no_run
 //! fn main() {
-//!     kymetica::build::compile_isle_auto().unwrap();
+//!     intarsia::build::compile_isle_auto().unwrap();
 //! }
 //! ```
 
@@ -50,7 +50,7 @@ use std::path::{Path, PathBuf};
 /// ```no_run
 /// // build.rs
 /// fn main() {
-///     kymetica::build::compile_isle_auto().unwrap();
+///     intarsia::build::compile_isle_auto().unwrap();
 /// }
 /// ```
 ///
@@ -87,7 +87,7 @@ pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
 /// // build.rs
 /// fn main() {
 ///     // Compile ISLE files in examples/optimizer/isle/
-///     kymetica::build::compile_isle_dir("examples/optimizer/isle").unwrap();
+///     intarsia::build::compile_isle_dir("examples/optimizer/isle").unwrap();
 /// }
 /// ```
 ///
@@ -155,8 +155,8 @@ pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>
 /// ```no_run
 /// // build.rs
 /// fn main() {
-///     kymetica::build::compile_isle_file("isle/rules.isle").unwrap();
-///     kymetica::build::compile_isle_file("isle/custom.isle").unwrap();
+///     intarsia::build::compile_isle_file("isle/rules.isle").unwrap();
+///     intarsia::build::compile_isle_file("isle/custom.isle").unwrap();
 /// }
 /// ```
 ///
@@ -214,7 +214,7 @@ pub fn compile_isle_file(isle_file: impl AsRef<Path>) -> Result<(), Box<dyn Erro
 /// ```no_run
 /// // build.rs
 /// fn main() {
-///     kymetica::build::compile_isle_files(&[
+///     intarsia::build::compile_isle_files(&[
 ///         "isle/rules.isle",
 ///         "isle/cost.isle",
 ///     ]).unwrap();
