@@ -9,16 +9,15 @@ pub mod language;
 pub mod property;
 pub mod types;
 
-// ISLE-generated Context trait implementation (must be after types/language/property)
-#[allow(dead_code, unused_variables, unused_imports, non_snake_case)]
-#[allow(irrefutable_let_patterns, unused_assignments, non_camel_case_types)]
-#[allow(unreachable_patterns, unreachable_code)]
-pub mod context;
+// Unit tests demonstrating usage patterns and validating implementation
+#[cfg(test)]
+mod tests;
 
 // Module imports
 use bimap::BiMap;
 use egg::Id;
-use kymetica::{CostDomain, CostFunction, ExplorerHooks, OptimizerFramework, isle_integration};
+use intarsia::{CostDomain, CostFunction, ExplorerHooks, OptimizerFramework};
+use intarsia_macros::isle_integration_full;
 use std::cmp::max;
 
 use catalog::Catalog;
@@ -36,15 +35,11 @@ pub const SELECTIVITY_FACTOR: f64 = 0.5;
 // --------------------------------------------
 // ISLE Generated Code Integration
 // --------------------------------------------
-// Declare the ISLE-generated rules module
-#[allow(dead_code, unused_variables, unused_imports, non_snake_case)]
-#[allow(irrefutable_let_patterns, unused_assignments, non_camel_case_types)]
-#[allow(unreachable_patterns, unreachable_code)]
-#[path = "isle/rules.rs"]
-pub(crate) mod rules;
-
-// Generate required type definitions for ISLE
-isle_integration!();
+// Single macro call to declare module and generate type definitions
+isle_integration_full! {
+    path: "isle/rules.rs",
+}
+pub mod context;
 // --------------------------------------------
 
 /// User data for the database optimizer.
