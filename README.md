@@ -1,4 +1,5 @@
 # Intarsia Optimizer Framework
+
 An extensible optimizer framework based on ISLE and egg.
 
 Given a set of rewrite rules (written in ISLE) and the corresponding language definition in Rust,
