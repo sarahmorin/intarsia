@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "intarsia-macros"]
+members = [".", "intarsia-build", "intarsia-macros"]
 resolver = "3"
 
 [package]
@@ -15,11 +15,7 @@ default = []
 build-helpers = ["dep:cranelift-isle"]
 
 [build-dependencies]
-cranelift-isle = { version = "0.128.1", features = [
-    "fancy-errors",
-    "log",
-    "logging",
-] }
+intarsia-build = { path = "intarsia-build" }
 
 [dependencies]
 bimap = "0.6.3"
@@ -39,6 +35,10 @@ env_logger = "0.11"
 [[example]]
 name = "database_optimizer"
 path = "examples/database_optimizer/main.rs"
+
+[[example]]
+name = "boolean_optimizer"
+path = "examples/boolean_optimizer/main.rs"
 
 # HACK: Use a local path dependency for egg during development to avoid git overhead and allow for easy code changes
 # [patch.crates-io]
