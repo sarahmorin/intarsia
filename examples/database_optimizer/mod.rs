@@ -71,10 +71,10 @@ impl DbUserData {
 /// - Property: SimpleProperty (sortedness tracking)
 /// - CostDomain: DbCost (database-specific cost with cardinality/blocks)
 /// - UserData: DbUserData (catalog and column sets)
-pub type DbOptimizer = OptimizerFramework<Optlang, SimpleProperty, DbCost, usize, DbUserData>;
+pub type DbOptimizer = OptimizerFramework<Optlang, SimpleProperty, DbCost, DbUserData>;
 
 // Implement CostFunction trait for the database optimizer
-impl CostFunction<Optlang, SimpleProperty, usize, DbCost> for DbOptimizer {
+impl CostFunction<Optlang, SimpleProperty, DbCost> for DbOptimizer {
     fn compute_cost<CF>(&self, node: &Optlang, mut costs: CF) -> DbCost
     where
         CF: FnMut(Id) -> DbCost,
