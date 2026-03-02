@@ -98,6 +98,6 @@ pub mod task;
 pub use cost::{CostDomain, CostFunction, SimpleCost};
 pub use hooks::ExplorerHooks;
 pub use language_ext::PropertyAwareLanguage;
-pub use optimizer::OptimizerFramework;
+pub use optimizer::{OptimizerFramework, SimpleOptimizerFramework};
 pub use property::Property;
 pub use task::Task;

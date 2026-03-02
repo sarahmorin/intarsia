@@ -55,14 +55,13 @@ use crate::framework::{
 /// // Extract best plan
 /// let best_plan = optimizer.extract(root_id);
 /// ```
-pub struct OptimizerFramework<L, P, C, D, UserData>
+#[derive(Debug, Clone)]
+pub struct OptimizerFramework<L, P, C, UserData>
 where
     L: Language + PropertyAwareLanguage<P>,
     P: Property,
-    D: Ord,
-    C: CostDomain<P, D>,
+    C: CostDomain<P>,
 {
-    __phantom_data: std::marker::PhantomData<(L, P, C, D)>, // To hold generic type parameters
     /// The e-graph holding all expressions and their equivalences
     pub egraph: EGraph<L, ()>,
 
@@ -96,12 +95,11 @@ where
     costs: HashMap<(Id, P), C>,
 }
 
-impl<L, P, C, D, UserData> OptimizerFramework<L, P, C, D, UserData>
+impl<L, P, C, UserData> OptimizerFramework<L, P, C, UserData>
 where
     L: Language + PropertyAwareLanguage<P>,
     P: Property,
-    C: CostDomain<P, D>,
-    D: Ord,
+    C: CostDomain<P>,
 {
     /// Create a new optimizer framework instance.
     ///
@@ -110,7 +108,6 @@ where
     /// * `user_data` - User-defined data accessible during optimization
     pub fn new(user_data: UserData) -> Self {
         Self {
-            __phantom_data: std::marker::PhantomData,
             egraph: EGraph::default(),
             user_data,
             task_stack: Vec::new(),
@@ -161,7 +158,7 @@ where
     /// After `run()` completes, use `extract()` to get the best expression.
     pub fn run(&mut self, id: Id)
     where
-        Self: ExplorerHooks<L> + CostFunction<L, P, D, C>,
+        Self: ExplorerHooks<L> + CostFunction<L, P, C>,
     {
         // Push the initial optimization task with no property requirements
         self.task_stack
@@ -348,7 +345,7 @@ where
     /// This explores the group and optimizes all expressions, then selects the best one.
     fn run_optimize_group(&mut self, task: Task<P>)
     where
-        Self: ExplorerHooks<L> + CostFunction<L, P, D, C>,
+        Self: ExplorerHooks<L> + CostFunction<L, P, C>,
     {
         let (id, props, explored, optimized) = match task {
             Task::OptimizeGroup(id, props, explored, optimized) => (id, props, explored, optimized),
@@ -425,7 +422,7 @@ where
     /// This optimizes all children of the expression first.
     fn run_optimize_expr(&mut self, task: Task<P>)
     where
-        Self: CostFunction<L, P, D, C>,
+        Self: CostFunction<L, P, C>,
     {
         let (id, children_optimized) = match task {
             Task::OptimizeExpr(id, children_optimized) => (id, children_optimized),
@@ -544,7 +541,7 @@ where
     // QUESTION: Should we distinguish between "child doesn't have memoized cost yet" vs "child's best expression doesn't satisfy required properties"?
     fn compute_expr_cost_with_props(&self, node: &L, required_props: P) -> Option<C>
     where
-        Self: CostFunction<L, P, D, C>,
+        Self: CostFunction<L, P, C>,
     {
         // Build a map of child costs with their required properties
         let mut child_cost_map: HashMap<Id, C> = HashMap::new();
@@ -593,4 +590,4 @@ impl<L: Language> egg::CostFunction<L> for AstSize {
 }
 
 /// A convenient type alias for a simple optimizer framework over a language and property using SimpleCost and usize as the cost domain.
-pub type SimpleOptimizerFramework<L, P> = OptimizerFramework<L, P, SimpleCost<P>, usize, ()>;
+pub type SimpleOptimizerFramework<L, P> = OptimizerFramework<L, P, SimpleCost<P>, ()>;
