@@ -1,8 +1,5 @@
 //! Build-time helpers for compiling ISLE DSL files to Rust code.
 //!
-//! This module is only available when the `build-helpers` feature is enabled.
-//! It provides utilities for compiling ISLE files in your build.rs script.
-//!
 //! # Example
 //!
 //! In your `Cargo.toml`:
@@ -11,21 +8,18 @@
 //! intarsia = "0.1"
 //!
 //! [build-dependencies]
-//! intarsia = { version = "0.1", features = ["build-helpers"] }
+//! intarsia-build = "*"
 //! ```
 //!
 //! In your `build.rs`:
 //! ```no_run
 //! fn main() {
-//!     intarsia::build::compile_isle_auto().unwrap();
+//!     intarsia_build::compile_isle_auto().unwrap();
 //! }
 //! ```
 
-#[cfg(feature = "build-helpers")]
 use std::error::Error;
-#[cfg(feature = "build-helpers")]
 use std::fs;
-#[cfg(feature = "build-helpers")]
 use std::path::{Path, PathBuf};
 
 /// Automatically discover and compile ISLE files in a conventional location.
@@ -61,7 +55,6 @@ use std::path::{Path, PathBuf};
 /// - No `.isle` files are found
 /// - ISLE compilation fails
 /// - File I/O fails
-#[cfg(feature = "build-helpers")]
 pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
     compile_isle_dir("isle")
 }
@@ -87,7 +80,7 @@ pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
 /// // build.rs
 /// fn main() {
 ///     // Compile ISLE files in examples/optimizer/isle/
-///     intarsia::build::compile_isle_dir("examples/optimizer/isle").unwrap();
+///     intarsia_build::compile_isle_dir("examples/optimizer/isle").unwrap();
 /// }
 /// ```
 ///
@@ -98,7 +91,6 @@ pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
 /// - No `.isle` files are found
 /// - ISLE compilation fails
 /// - File I/O fails
-#[cfg(feature = "build-helpers")]
 pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
     let isle_dir = isle_dir.as_ref();
 
@@ -155,8 +147,8 @@ pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>
 /// ```no_run
 /// // build.rs
 /// fn main() {
-///     intarsia::build::compile_isle_file("isle/rules.isle").unwrap();
-///     intarsia::build::compile_isle_file("isle/custom.isle").unwrap();
+///     intarsia_build::compile_isle_file("isle/rules.isle").unwrap();
+///     intarsia_build::compile_isle_file("isle/custom.isle").unwrap();
 /// }
 /// ```
 ///
@@ -166,7 +158,6 @@ pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>
 /// - The file doesn't exist
 /// - ISLE compilation fails
 /// - File I/O fails
-#[cfg(feature = "build-helpers")]
 pub fn compile_isle_file(isle_file: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
     let isle_file = isle_file.as_ref();
 
@@ -180,12 +171,6 @@ pub fn compile_isle_file(isle_file: impl AsRef<Path>) -> Result<(), Box<dyn Erro
         .ok_or("Invalid file name")?
         .to_str()
         .ok_or("Non-UTF8 file name")?;
-
-    let base_name = isle_file
-        .file_stem()
-        .ok_or("Invalid file stem")?
-        .to_str()
-        .ok_or("Non-UTF8 file stem")?;
 
     // Set up cargo rerun-if-changed
     println!("cargo:rerun-if-changed={}", isle_file.display());
@@ -214,13 +199,12 @@ pub fn compile_isle_file(isle_file: impl AsRef<Path>) -> Result<(), Box<dyn Erro
 /// ```no_run
 /// // build.rs
 /// fn main() {
-///     intarsia::build::compile_isle_files(&[
+///     intarsia_build::compile_isle_files(&[
 ///         "isle/rules.isle",
 ///         "isle/cost.isle",
 ///     ]).unwrap();
 /// }
 /// ```
-#[cfg(feature = "build-helpers")]
 pub fn compile_isle_files(isle_files: &[impl AsRef<Path>]) -> Result<(), Box<dyn Error>> {
     for isle_file in isle_files {
         compile_isle_file(isle_file)?;
@@ -229,7 +213,6 @@ pub fn compile_isle_files(isle_files: &[impl AsRef<Path>]) -> Result<(), Box<dyn
 }
 
 #[cfg(test)]
-#[cfg(feature = "build-helpers")]
 mod tests {
     use super::*;
 
