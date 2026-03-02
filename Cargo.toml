@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "intarsia-macros"]
+members = [".", "intarsia-build", "intarsia-macros"]
 resolver = "3"
 
 [package]
@@ -33,5 +33,10 @@ env_logger = "0.11"
 name = "database_optimizer"
 path = "examples/database_optimizer/main.rs"
 
-[patch.crates-io]
-egg = { path = "../egg" }
+[[example]]
+name = "boolean_optimizer"
+path = "examples/boolean_optimizer/main.rs"
+
+# HACK: Use a local path dependency for egg during development to avoid git overhead and allow for easy code changes
+# [patch.crates-io]
+# egg = { path = "../egg" }
