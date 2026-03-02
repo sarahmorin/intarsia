@@ -8,5 +8,5 @@ pub mod build;
 // Re-export commonly used items
 pub use framework::{
     CostDomain, CostFunction, ExplorerHooks, OptimizerFramework, Property, PropertyAwareLanguage,
-    SimpleCost, Task,
+    SimpleCost, SimpleOptimizerFramework, Task,
 };

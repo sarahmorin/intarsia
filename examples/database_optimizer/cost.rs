@@ -52,7 +52,8 @@ impl DbCost {
     }
 }
 
-impl CostDomain<SimpleProperty, usize> for DbCost {
+impl CostDomain<SimpleProperty> for DbCost {
+    type RawCost = usize;
     fn cost(&self) -> usize {
         self.cost
     }
