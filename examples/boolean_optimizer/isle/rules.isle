@@ -1,0 +1,97 @@
+;; Required Id primitive for egg integration
+(type Id (primitive Id))
+
+;; Declare the terms and operations in our language
+;; and their extractors and constructors for integration with egg.
+(decl Const (bool) Id)
+(extern extractor Const extractor_const)
+(extern constructor Const constructor_const)
+
+(decl And (Id Id) Id)
+(extern extractor And extractor_and)
+(extern constructor And constructor_and)
+
+(decl Or (Id Id) Id)
+(extern extractor Or extractor_or)
+(extern constructor Or constructor_or)
+
+(decl Not (Id) Id)
+(extern extractor Not extractor_not)
+(extern constructor Not constructor_not)
+
+;; Declare the entrypoint for our rewrite rules.
+(decl multi explore (Id) Id)
+
+;; Example rewrite rules for boolean optimization.
+;; These demonstrate how to express common boolean simplifications.
+
+;; Double negation: NOT(NOT(x)) => x
+(rule
+    (explore (Not (Not x)))
+    x
+)
+
+;; De Morgan's laws:
+;; NOT(AND(x, y)) => OR(NOT(x), NOT(y))
+(rule
+    (explore (Not (And x y)))
+    (Or (Not x) (Not y))
+)
+
+;; NOT(OR(x, y)) => AND(NOT(x), NOT(y))
+(rule
+    (explore (Not (Or x y)))
+    (And (Not x) (Not y))
+)
+
+;; Idempotent laws:
+;; AND(x, x) => x
+(rule
+    (explore (And x x))
+    x
+)
+
+;; OR(x, x) => x
+(rule
+    (explore (Or x x))
+    x
+)
+
+;; Annihilation laws:
+;; AND(x, false) => false
+(rule
+    (explore (And x (Const false)))
+    (Const false)
+)
+
+;; OR(x, true) => true
+(rule
+    (explore (Or x (Const true)))
+    (Const true)
+)
+
+;; Identity laws:
+;; AND(x, true) => x
+(rule
+    (explore (And x (Const true)))
+    x
+)
+
+;; OR(x, false) => x
+(rule
+    (explore (Or x (Const false)))
+    x
+)   
+
+;; Negation of constants:
+;; NOT(true) => false
+(rule
+    (explore (Not (Const true)))
+    (Const false)
+)
+
+;; NOT(false) => true
+(rule
+    (explore (Not (Const false)))
+    (Const true)
+)
