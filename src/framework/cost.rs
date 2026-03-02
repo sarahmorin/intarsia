@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 use crate::framework::property::Property;
+use crate::{OptimizerFramework, PropertyAwareLanguage};
 
 /// Trait for cost domains used by the optimizer.
 ///
@@ -18,10 +19,10 @@ use crate::framework::property::Property;
 /// # Type Parameters
 ///
 /// * `P` - The property type
-/// * `D` - The raw cost type (e.g., usize, f64, or a custom struct)
 ///
-/// # Required Methods
+/// # Required Types and Methods
 ///
+/// - `RawCost`: The type of the raw cost value used for ordering (e.g., usize, f64).
 /// - `cost()`: Returns the raw numeric cost for ordering
 /// - `properties()`: Returns the properties this cost represents
 ///
@@ -30,19 +31,21 @@ use crate::framework::property::Property;
 /// ```rust,ignore
 /// // Simple cost domain with just cost and properties
 /// impl<P: Property> CostDomain<P> for SimpleCost<P> {
+///     type RawCost = usize;
 ///     fn cost(&self) -> usize { self.cost }
 ///     fn properties(&self) -> &P { &self.properties }
 /// }
 ///
 /// // Rich cost domain with cardinality estimates
-/// struct DbCost<P: Property, D: usize> {
-///     cost: D,
+/// struct DbCost<P: Property> {
+///     cost: usize,
 ///     properties: P,
 ///     cardinality: Option<usize>,
 ///     blocks: Option<usize>,
 /// }
 ///
 /// impl<P: Property> CostDomain<P> for DbCost<P> {
+///     type RawCost = usize;
 ///     fn cost(&self) -> usize { self.cost }
 ///     fn properties(&self) -> &P { &self.properties }
 /// }
@@ -57,13 +60,17 @@ use crate::framework::property::Property;
 /// - Implement `PartialEq` and `Eq` to define when two costs are considered equal, especially if you are embedding extra information for computing costs that you *don't* want to use when comparing costs.
 /// - Consider using saturating arithmetic for cost computations to avoid overflow (e.g., `saturating_add`, `saturating_mul
 ///
-pub trait CostDomain<P: Property, D: Ord>:
+pub trait CostDomain<P: Property>:
     Clone + Debug + PartialEq + Eq + PartialOrd + Hash + Default
 {
+    /// The type of the raw cost value used for ordering.
+    /// This is typically a numeric type like usize or f64, but can be any type that implements Ord.
+    type RawCost: Ord;
+
     /// Get the raw numeric cost value.
     ///
     /// This is used for ordering costs - lower values are better.
-    fn cost(&self) -> D;
+    fn cost(&self) -> Self::RawCost;
 
     /// Get the properties that this cost represents.
     fn properties(&self) -> &P;
@@ -133,7 +140,9 @@ impl<P: Property> SimpleCost<P> {
     }
 }
 
-impl<P: Property> CostDomain<P, usize> for SimpleCost<P> {
+impl<P: Property> CostDomain<P> for SimpleCost<P> {
+    type RawCost = usize;
+
     fn cost(&self) -> usize {
         self.raw_cost
     }
@@ -233,7 +242,7 @@ impl<P: Property> PartialOrd for SimpleCost<P> {
 ///     }
 /// }
 /// ```
-pub trait CostFunction<L: Language, P: Property, D: Ord, C: CostDomain<P, D>> {
+pub trait CostFunction<L: Language, P: Property, C: CostDomain<P>> {
     /// Compute the cost of an expression node.
     ///
     /// # Arguments
@@ -278,4 +287,34 @@ pub trait CostFunction<L: Language, P: Property, D: Ord, C: CostDomain<P, D>> {
     fn compute_cost<CF>(&self, node: &L, costs: CF) -> C
     where
         CF: FnMut(Id) -> C;
+}
+
+/// A simple cost function implementation that uses the `SimpleCost` domain.
+/// This is provided as a ready-to-use cost function for simple use cases.
+impl<L, P> CostFunction<L, P, SimpleCost<P>> for OptimizerFramework<L, P, SimpleCost<P>, ()>
+where
+    L: PropertyAwareLanguage<P>,
+    P: Property,
+{
+    fn compute_cost<CF>(&self, node: &L, mut costs: CF) -> SimpleCost<P>
+    where
+        CF: FnMut(Id) -> SimpleCost<P>,
+    {
+        // Example implementation - you would replace this with your actual cost logic
+        let child_costs: Vec<SimpleCost<P>> = node
+            .children()
+            .iter()
+            .map(|&child_id| costs(child_id))
+            .collect();
+
+        // Combine child costs and add operator cost (this is just a placeholder)
+        let total_cost = child_costs.iter().fold(0, |acc: usize, c: &SimpleCost<P>| {
+            acc.saturating_add(c.cost())
+        }) + 1;
+
+        // Determine properties (this is just a placeholder - you would compute this based on the operator and child properties)
+        let properties = P::bottom();
+
+        SimpleCost::new(total_cost, properties)
+    }
 }
