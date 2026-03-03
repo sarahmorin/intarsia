@@ -260,8 +260,10 @@ where
             .unwrap_or_else(C::default);
 
         // Recursively extract children with their required properties
+        // Use memoization to avoid creating duplicate nodes when the same e-class appears multiple times
         let mut expr = RecExpr::default();
-        self.extract_node_to_recexpr(best_node, &mut expr);
+        let mut extraction_memo: HashMap<(Id, P), Id> = HashMap::new();
+        self.extract_node_to_recexpr(best_node, &mut expr, &mut extraction_memo);
 
         (cost, expr)
     }
@@ -269,8 +271,14 @@ where
     /// Recursively extract a node and its children into a RecExpr.
     ///
     /// This looks up required properties for each child and extracts them accordingly,
-    /// building up the RecExpr from the bottom up.
-    fn extract_node_to_recexpr(&self, node: &L, expr: &mut RecExpr<L>) -> Id {
+    /// building up the RecExpr from the bottom up. Uses memoization to avoid creating
+    /// duplicate nodes when the same e-class appears multiple times.
+    fn extract_node_to_recexpr(
+        &self,
+        node: &L,
+        expr: &mut RecExpr<L>,
+        extraction_memo: &mut HashMap<(Id, P), Id>,
+    ) -> Id {
         // For nodes with children, extract each child with required properties
         let children = node.children();
         if children.is_empty() {
@@ -282,7 +290,7 @@ where
             for (i, &child_id) in children.iter().enumerate() {
                 let required_props = node.property_req(i);
                 let extracted_child_id =
-                    self.extract_child_for_node(child_id, required_props, expr);
+                    self.extract_child_for_node(child_id, required_props, expr, extraction_memo);
                 extracted_children.push(extracted_child_id);
             }
 
@@ -297,42 +305,65 @@ where
     /// Extract a child eclass with required properties and add it to the RecExpr.
     ///
     /// Returns the Id of the extracted subtree in the RecExpr.
+    /// Uses memoization to avoid extracting the same (eclass, property) pair multiple times.
     fn extract_child_for_node(
         &self,
         child_eclass_id: Id,
         required_props: P,
         expr: &mut RecExpr<L>,
+        extraction_memo: &mut HashMap<(Id, P), Id>,
     ) -> Id {
         let child_eclass = self.egraph.find(child_eclass_id);
 
+        // Check if we've already extracted this (eclass, property) pair
+        if let Some(&existing_id) = extraction_memo.get(&(child_eclass, required_props.clone())) {
+            return existing_id;
+        }
+
         // Look up the best node for this (child_eclass, required_props) pair
-        if let Some(&best_node_id) = self
+        let recexpr_id = if let Some(&best_node_id) = self
             .optimized_memo
             .get(&(child_eclass, required_props.clone()))
         {
             let best_node = self.egraph.get_node(best_node_id);
-            self.extract_node_to_recexpr(best_node, expr)
+            self.extract_node_to_recexpr(best_node, expr, extraction_memo)
         } else {
             // Fallback: if we don't have the required property memoized, try Bottom
             if required_props != P::bottom() {
                 if let Some(&best_node_id) = self.optimized_memo.get(&(child_eclass, P::bottom())) {
                     let best_node = self.egraph.get_node(best_node_id);
-                    return self.extract_node_to_recexpr(best_node, expr);
+                    self.extract_node_to_recexpr(best_node, expr, extraction_memo)
+                } else {
+                    // Last resort: extract any node from the eclass
+                    warn!(
+                        "No optimized node found for child eclass {:?} with property {:?}, using arbitrary node",
+                        child_eclass, required_props
+                    );
+                    if let Some((node_id, _)) = self.egraph.nodes_in_class(child_eclass).next() {
+                        let node = self.egraph.get_node(node_id);
+                        self.extract_node_to_recexpr(node, expr, extraction_memo)
+                    } else {
+                        panic!("Eclass {:?} has no nodes!", child_eclass);
+                    }
+                }
+            } else {
+                // Last resort: extract any node from the eclass
+                warn!(
+                    "No optimized node found for child eclass {:?} with property {:?}, using arbitrary node",
+                    child_eclass, required_props
+                );
+                if let Some((node_id, _)) = self.egraph.nodes_in_class(child_eclass).next() {
+                    let node = self.egraph.get_node(node_id);
+                    self.extract_node_to_recexpr(node, expr, extraction_memo)
+                } else {
+                    panic!("Eclass {:?} has no nodes!", child_eclass);
                 }
             }
+        };
 
-            // Last resort: extract any node from the eclass
-            warn!(
-                "No optimized node found for child eclass {:?} with property {:?}, using arbitrary node",
-                child_eclass, required_props
-            );
-            if let Some((node_id, _)) = self.egraph.nodes_in_class(child_eclass).next() {
-                let node = self.egraph.get_node(node_id);
-                self.extract_node_to_recexpr(node, expr)
-            } else {
-                panic!("Eclass {:?} has no nodes!", child_eclass);
-            }
-        }
+        // Memoize this extraction
+        extraction_memo.insert((child_eclass, required_props), recexpr_id);
+        recexpr_id
     }
 
     /// Run an optimize group task.
@@ -346,6 +377,10 @@ where
             Task::OptimizeGroup(id, props, explored, optimized) => (id, props, explored, optimized),
             _ => panic!("run_optimize_group called with non-optimize task"),
         };
+
+        // Canonicalize the ID - it may have changed due to unions during exploration
+        let id = self.egraph.find(id);
+
         debug!(
             "run_optimize_group: {:?}",
             Task::OptimizeGroup(id, props.clone(), explored, optimized)
@@ -431,12 +466,17 @@ where
             // Optimize each child with its required properties
             for (i, child) in node.children().iter().enumerate() {
                 let props = node.property_req(i);
-                if self.optimized_groups.contains(&(*child, props.clone())) {
+                // Canonicalize child ID before checking tracking structures
+                let canonical_child = self.egraph.find(*child);
+                if self
+                    .optimized_groups
+                    .contains(&(canonical_child, props.clone()))
+                {
                     // Skip if already optimized or in progress
                     continue;
                 }
                 self.task_stack
-                    .push(Task::OptimizeGroup(*child, props, false, false));
+                    .push(Task::OptimizeGroup(canonical_child, props, false, false));
             }
 
             return;
@@ -457,6 +497,10 @@ where
             Task::ExploreGroup(id, explored) => (id, explored),
             _ => panic!("run_explore_group called with non-explore task"),
         };
+
+        // Canonicalize the ID - it may have changed due to unions during exploration
+        let id = self.egraph.find(id);
+
         debug!("run_explore_group: id={:?}, explored={:?}", id, explored);
 
         self.explored_groups.insert(id);
@@ -491,11 +535,14 @@ where
         if !children_explored {
             self.task_stack.push(Task::ExploreExpr(id, true));
             for child in self.egraph.get_node(id).children() {
-                if self.explored_groups.contains(child) {
+                // Canonicalize child ID before checking tracking structures
+                let canonical_child = self.egraph.find(*child);
+                if self.explored_groups.contains(&canonical_child) {
                     // Skip if already explored (cycle detection)
                     continue;
                 }
-                self.task_stack.push(Task::ExploreGroup(*child, false));
+                self.task_stack
+                    .push(Task::ExploreGroup(canonical_child, false));
             }
             return;
         }
