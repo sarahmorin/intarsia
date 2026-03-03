@@ -15,7 +15,7 @@ fn main() {
 
     // Initialize the logger to see optimization progress
     env_logger::Builder::from_default_env()
-        .filter_level(log::LevelFilter::Debug)
+        .filter_level(log::LevelFilter::Info)
         .init();
 
     // ============================================================
