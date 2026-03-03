@@ -74,20 +74,17 @@ where
     /// Task stack for the cascades optimization algorithm
     pub(crate) task_stack: Vec<Task<P>>,
 
-    /// Groups currently being explored (to detect cycles)
-    exploring_groups: HashSet<Id>,
-
-    /// Groups that have been fully explored
+    /// Groups that have been explored
     explored_groups: HashSet<Id>,
 
     /// Groups that are currently being optimized (to detect cycles)
-    optimizing_groups: HashSet<(Id, P)>,
+    optimized_groups: HashSet<(Id, P)>,
 
     /// Best expression for each (group, property) pair
     ///
     /// Maps (group_id, required_properties) to the ID of the best expression node
     /// that satisfies those properties.
-    optimized_groups: HashMap<(Id, P), Id>,
+    optimized_memo: HashMap<(Id, P), Id>,
 
     /// Memoized costs for each (group, property) pair
     ///
@@ -111,10 +108,9 @@ where
             egraph: EGraph::default(),
             user_data,
             task_stack: Vec::new(),
-            exploring_groups: HashSet::new(),
             explored_groups: HashSet::new(),
-            optimizing_groups: HashSet::new(),
-            optimized_groups: HashMap::new(),
+            optimized_groups: HashSet::new(),
+            optimized_memo: HashMap::new(),
             costs: HashMap::new(),
         }
     }
@@ -240,7 +236,7 @@ where
         let eclass = self.egraph.find(id);
 
         // Look up the best node for this (eclass, property) pair
-        let best_node_id = self.optimized_groups.get(&(eclass, props.clone()));
+        let best_node_id = self.optimized_memo.get(&(eclass, props.clone()));
 
         if best_node_id.is_none() {
             warn!(
@@ -311,7 +307,7 @@ where
 
         // Look up the best node for this (child_eclass, required_props) pair
         if let Some(&best_node_id) = self
-            .optimized_groups
+            .optimized_memo
             .get(&(child_eclass, required_props.clone()))
         {
             let best_node = self.egraph.get_node(best_node_id);
@@ -319,8 +315,7 @@ where
         } else {
             // Fallback: if we don't have the required property memoized, try Bottom
             if required_props != P::bottom() {
-                if let Some(&best_node_id) = self.optimized_groups.get(&(child_eclass, P::bottom()))
-                {
+                if let Some(&best_node_id) = self.optimized_memo.get(&(child_eclass, P::bottom())) {
                     let best_node = self.egraph.get_node(best_node_id);
                     return self.extract_node_to_recexpr(best_node, expr);
                 }
@@ -356,20 +351,16 @@ where
             Task::OptimizeGroup(id, props.clone(), explored, optimized)
         );
 
-        // If we have already optimized this group, skip it
-        if self.optimized_groups.contains_key(&(id, props.clone())) {
-            debug!("Group {:?} already optimized, skipping", id);
-            return;
-        }
-
         // Mark as in progress
-        self.optimizing_groups.insert((id, props.clone()));
+        self.optimized_groups.insert((id, props.clone()));
 
         // If we haven't explored this group yet, explore it first
         if !explored {
             self.task_stack
                 .push(Task::OptimizeGroup(id, props.clone(), true, optimized));
-            self.task_stack.push(Task::ExploreGroup(id, false));
+            if !self.explored_groups.contains(&id) {
+                self.task_stack.push(Task::ExploreGroup(id, false));
+            }
             return;
         }
 
@@ -404,17 +395,15 @@ where
                 id, props, expr_id, best_cost
             );
             self.costs.insert((id, props.clone()), best_cost);
-            self.optimized_groups.insert((id, props.clone()), expr_id);
+            self.optimized_memo.insert((id, props.clone()), expr_id);
         } else {
-            debug!(
+            warn!(
                 "Warning: No valid expression found for group {:?} with props {:?}",
                 id, props
             );
             // QUESTION: Should we not mark this group as optimized if we didn't find any valid expression?
             // Or should we store a sentinel value to indicate that we've optimized but found nothing?
         }
-
-        self.optimizing_groups.remove(&(id, props));
     }
 
     /// Run an optimize expr task.
@@ -442,9 +431,7 @@ where
             // Optimize each child with its required properties
             for (i, child) in node.children().iter().enumerate() {
                 let props = node.property_req(i);
-                if self.optimized_groups.contains_key(&(*child, props.clone()))
-                    || self.optimizing_groups.contains(&(*child, props.clone()))
-                {
+                if self.optimized_groups.contains(&(*child, props.clone())) {
                     // Skip if already optimized or in progress
                     continue;
                 }
@@ -472,12 +459,7 @@ where
         };
         debug!("run_explore_group: id={:?}, explored={:?}", id, explored);
 
-        // If already explored, skip
-        if self.explored_groups.contains(&id) {
-            debug!("Group {:?} already explored, skipping", id);
-            return;
-        }
-        self.exploring_groups.insert(id);
+        self.explored_groups.insert(id);
 
         // If expressions haven't been explored yet, explore them
         if !explored {
@@ -487,10 +469,6 @@ where
             }
             return;
         }
-
-        // Mark group as explored
-        self.explored_groups.insert(id);
-        self.exploring_groups.remove(&id);
     }
 
     /// Run an explore expr task.
@@ -513,8 +491,8 @@ where
         if !children_explored {
             self.task_stack.push(Task::ExploreExpr(id, true));
             for child in self.egraph.get_node(id).children() {
-                if self.explored_groups.contains(child) || self.exploring_groups.contains(child) {
-                    // Skip if already explored or in progress (cycle detection)
+                if self.explored_groups.contains(child) {
+                    // Skip if already explored (cycle detection)
                     continue;
                 }
                 self.task_stack.push(Task::ExploreGroup(*child, false));
