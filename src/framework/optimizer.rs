@@ -84,12 +84,14 @@ where
     ///
     /// Maps (group_id, required_properties) to the ID of the best expression node
     /// that satisfies those properties.
-    optimized_memo: HashMap<(Id, P), Id>,
+    // TODO: MAke accessors instead
+    pub optimized_memo: HashMap<(Id, P), Id>,
 
     /// Memoized costs for each (group, property) pair
     ///
     /// Stores the cost of the best expression for each (group_id, required_properties) pair.
-    costs: HashMap<(Id, P), C>,
+    // TODO: Make accessors instead of public field
+    pub costs: HashMap<(Id, P), C>,
 }
 
 impl<L, P, C, UserData> OptimizerFramework<L, P, C, UserData>
