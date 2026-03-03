@@ -308,9 +308,12 @@ where
             .collect();
 
         // Combine child costs and add operator cost (this is just a placeholder)
-        let total_cost = child_costs.iter().fold(0, |acc: usize, c: &SimpleCost<P>| {
-            acc.saturating_add(c.cost())
-        }) + 1;
+        let total_cost = child_costs
+            .iter()
+            .fold(0, |acc: usize, c: &SimpleCost<P>| {
+                acc.saturating_add(c.cost())
+            })
+            .saturating_add(1);
 
         // Determine properties (this is just a placeholder - you would compute this based on the operator and child properties)
         let properties = P::bottom();
