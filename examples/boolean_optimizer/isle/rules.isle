@@ -1,11 +1,16 @@
 ;; Required Id primitive for egg integration
 (type Id (primitive Id))
+(type str (primitive String))
 
 ;; Declare the terms and operations in our language
 ;; and their extractors and constructors for integration with egg.
-(decl Const (bool) Id)
+(decl pure Const (bool) Id)
 (extern extractor Const extractor_const)
 (extern constructor Const constructor_const)
+
+(decl pure Var (str) Id)
+(extern extractor Var extractor_var)
+(extern constructor Var constructor_var)
 
 (decl And (Id Id) Id)
 (extern extractor And extractor_and)
