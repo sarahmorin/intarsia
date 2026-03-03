@@ -1,9 +1,7 @@
-/// Boolean optimizer example demonstrating cascades-style optimization with ISLE rules.
-///
-/// This example shows how a complex, redundant boolean expression gets simplified
-/// through the optimizer framework applying various boolean algebra rules.
-
-// Include the boolean optimizer module
+/// Simple Rewrite Explorer Demo
+/// 
+/// Considers network nodes between operators with a (TODO) cost function.
+ 
 #[path = "mod.rs"]
 mod rewrite_opt;
 
