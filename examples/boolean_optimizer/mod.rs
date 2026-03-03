@@ -45,11 +45,15 @@ pub type BoolOptimizer = SimpleOptimizerFramework<BoolLang, NoProperty>;
 impl Context for BoolOptimizer {
     // Implement extracting and constructing raw/constant values manually for the BoolLang
     fn extractor_const(&mut self, arg0: Id) -> Option<bool> {
-        let node = self.egraph.get_node(arg0);
-        match node {
-            BoolLang::Bool(x) => Some(*x),
-            _ => None,
+        // Search the entire e-class for a Bool node
+        // arg0 might be a canonical e-class ID that contains multiple nodes
+        let eclass = self.egraph.find(arg0);
+        for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
+            if let BoolLang::Bool(x) = node {
+                return Some(*x);
+            }
         }
+        None
     }
 
     fn constructor_const(&mut self, arg0: bool) -> Id {
@@ -58,21 +62,30 @@ impl Context for BoolOptimizer {
         } else {
             BoolLang::Bool(false)
         };
-        let (id, _) = self.egraph.add_with_flag(node);
+        let (id, is_new) = self.egraph.add_with_flag(node);
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
         id
     }
 
     fn extractor_var(&mut self, arg0: Id) -> Option<String> {
-        let node = self.egraph.get_node(arg0);
-        match node {
-            BoolLang::Var(name) => Some(name.clone()),
-            _ => None,
+        // Search the entire e-class for a Var node
+        let eclass = self.egraph.find(arg0);
+        for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
+            if let BoolLang::Var(name) = node {
+                return Some(name.clone());
+            }
         }
+        None
     }
 
     fn constructor_var(&mut self, arg0: String) -> Id {
         let node = BoolLang::Var(arg0);
-        let (id, _) = self.egraph.add_with_flag(node);
+        let (id, is_new) = self.egraph.add_with_flag(node);
+        if is_new {
+            self.push_task(Task::ExploreExpr(id, false));
+        }
         id
     }
 
@@ -95,3 +108,6 @@ impl ExplorerHooks<BoolLang> for BoolOptimizer {
 }
 
 // Now, we can use this optimizer in our tests/main. See an example execution in main.rs.
+
+#[cfg(test)]
+mod tests;

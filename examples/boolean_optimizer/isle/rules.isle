@@ -62,6 +62,19 @@
     x
 )
 
+;; Commutative laws:
+;; AND(x, y) => AND(y, x)
+(rule
+    (explore (And x y))
+    (And y x)
+)
+
+;; OR(x, y) => OR(y, x)
+(rule
+    (explore (Or x y))
+    (Or y x)
+)
+
 ;; Annihilation laws:
 ;; AND(x, false) => false
 (rule
@@ -86,7 +99,7 @@
 (rule
     (explore (Or x (Const false)))
     x
-)   
+)
 
 ;; Negation of constants:
 ;; NOT(true) => false

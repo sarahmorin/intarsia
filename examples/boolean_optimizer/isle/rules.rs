@@ -119,21 +119,21 @@ pub fn constructor_explore<C: Context>(
 ) -> () {
     let v1 = C::extractor_not(ctx, arg0);
     if let Some(v2) = v1 {
-        let v35 = C::extractor_const(ctx, v2);
-        if let Some(v36) = v35 {
-            match v36 {
+        let v37 = C::extractor_const(ctx, v2);
+        if let Some(v38) = v37 {
+            match v38 {
                 false => {
-                    let v33 = true;
-                    let v34 = C::constructor_const(ctx, v33);
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 99.
-                    returns.extend(Some(v34));
+                    let v35 = true;
+                    let v36 = C::constructor_const(ctx, v35);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 112.
+                    returns.extend(Some(v36));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 true => {
-                    let v29 = false;
-                    let v30 = C::constructor_const(ctx, v29);
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 93.
-                    returns.extend(Some(v30));
+                    let v31 = false;
+                    let v32 = C::constructor_const(ctx, v31);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 106.
+                    returns.extend(Some(v32));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 _ => {}
@@ -166,18 +166,18 @@ pub fn constructor_explore<C: Context>(
     }
     let v19 = C::extractor_and(ctx, arg0);
     if let Some(v20) = v19 {
-        let v27 = C::extractor_const(ctx, v20.1);
-        if let Some(v28) = v27 {
-            match v28 {
+        let v29 = C::extractor_const(ctx, v20.1);
+        if let Some(v30) = v29 {
+            match v30 {
                 false => {
-                    let v29 = false;
-                    let v30 = C::constructor_const(ctx, v29);
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 67.
-                    returns.extend(Some(v30));
+                    let v31 = false;
+                    let v32 = C::constructor_const(ctx, v31);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 80.
+                    returns.extend(Some(v32));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 true => {
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 80.
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 93.
                     returns.extend(Some(v20.0));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
@@ -189,22 +189,26 @@ pub fn constructor_explore<C: Context>(
             returns.extend(Some(v20.0));
             if returns.len() >= MAX_ISLE_RETURNS { return; }
         }
+        let v27 = C::constructor_and(ctx, v20.1, v20.0);
+        // Rule at examples/boolean_optimizer/isle/rules.isle line 67.
+        returns.extend(Some(v27));
+        if returns.len() >= MAX_ISLE_RETURNS { return; }
     }
     let v23 = C::extractor_or(ctx, arg0);
     if let Some(v24) = v23 {
-        let v31 = C::extractor_const(ctx, v24.1);
-        if let Some(v32) = v31 {
-            match v32 {
+        let v33 = C::extractor_const(ctx, v24.1);
+        if let Some(v34) = v33 {
+            match v34 {
                 false => {
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 86.
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 99.
                     returns.extend(Some(v24.0));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 true => {
-                    let v33 = true;
-                    let v34 = C::constructor_const(ctx, v33);
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 73.
-                    returns.extend(Some(v34));
+                    let v35 = true;
+                    let v36 = C::constructor_const(ctx, v35);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 86.
+                    returns.extend(Some(v36));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 _ => {}
@@ -215,5 +219,9 @@ pub fn constructor_explore<C: Context>(
             returns.extend(Some(v24.0));
             if returns.len() >= MAX_ISLE_RETURNS { return; }
         }
+        let v28 = C::constructor_or(ctx, v24.1, v24.0);
+        // Rule at examples/boolean_optimizer/isle/rules.isle line 73.
+        returns.extend(Some(v28));
+        if returns.len() >= MAX_ISLE_RETURNS { return; }
     }
 }
