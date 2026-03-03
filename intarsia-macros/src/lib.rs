@@ -2,9 +2,12 @@
 //!
 //! This crate provides macros to help integrate ISLE-generated code into your Rust optimizer framework.
 //! The main macros are:
-//! - `isle_extractor!`: Generates extractor functions for ISLE operators.
-//! - `isle_constructor!`: Generates constructor functions for ISLE operators.
-//! - `isle_accessors!`: Generates both extractors and constructors for ISLE operators
+//! - `isle_extractor!`: Generates extractor functions for ISLE operators (non-multi).
+//! - `isle_constructor!`: Generates constructor functions for ISLE operators (non-multi).
+//! - `isle_accessors!`: Generates both extractors and constructors for ISLE operators (non-multi).
+//! - `isle_multi_extractor!`: Generates extractor functions for multi ISLE operators.
+//! - `isle_multi_constructor!`: Generates constructor functions for multi ISLE operators.
+//! - `isle_multi_accessors!`: Generates both extractors and constructors for multi ISLE operators.
 //! - `isle_integration!`: Generates type definitions required by ISLE.
 //! - `isle_integration_full!`: Combines module declaration and type definitions for ISLE integration.
 
@@ -54,13 +57,13 @@ impl Parse for ExtractorList {
 }
 
 /// Generate extractor functions for ISLE-integrated operators.
+/// Generate extractor functions for ISLE-integrated operators.
 ///
 /// # Syntax
 /// ```ignore
 /// isle_extractor! {
 ///     fn extractor_or(Or, 2);
 ///     fn extractor_not(Not, 1);
-///     fn extractor_join(Join, 3);
 /// }
 /// ```
 #[proc_macro]
@@ -79,6 +82,7 @@ pub fn isle_extractor(input: TokenStream) -> TokenStream {
             return Error::new_spanned(&item.arity, "Arity must be at least 1").to_compile_error();
         }
 
+        // Non-multi extractor: returns Option, checks only canonical node
         if arity == 1 {
             // Single child case: Variant(id)
             quote! {
@@ -112,6 +116,83 @@ pub fn isle_extractor(input: TokenStream) -> TokenStream {
                     } else {
                         None
                     }
+                }
+            }
+        }
+    });
+
+    let output = quote! {
+        #(#functions)*
+    };
+
+    output.into()
+}
+
+/// Generate extractor functions for multi ISLE-integrated operators.
+///
+/// Multi extractors check all nodes in an e-class and return all matches.
+///
+/// # Syntax
+/// ```ignore
+/// isle_multi_extractor! {
+///     fn extractor_or(Or, 2);
+///     fn extractor_not(Not, 1);
+/// }
+/// ```
+#[proc_macro]
+pub fn isle_multi_extractor(input: TokenStream) -> TokenStream {
+    let ExtractorList { items } = parse_macro_input!(input as ExtractorList);
+
+    let functions = items.iter().map(|item| {
+        let fn_name = &item.fn_name;
+        let variant = &item.variant;
+        let arity: usize = item
+            .arity
+            .base10_parse()
+            .expect("Arity must be a positive integer");
+
+        if arity == 0 {
+            return Error::new_spanned(&item.arity, "Arity must be at least 1").to_compile_error();
+        }
+
+        // Multi-extractor: returns Vec of all matching nodes in the e-class
+        if arity == 1 {
+            // Single child case: Variant(id)
+            quote! {
+                fn #fn_name(&mut self, arg0: egg::Id) -> Vec<egg::Id> {
+                    let eclass = self.egraph.find(arg0);
+                    let mut results = Vec::new();
+                    for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
+                        if let #variant(id) = node {
+                            // Canonicalize the ID so pattern matching works with e-class equality
+                            results.push(self.egraph.find(*id));
+                        }
+                    }
+                    results
+                }
+            }
+        } else {
+            // Multiple children case: Variant([id1, id2, ...])
+            let id_names: Vec<_> = (1..=arity)
+                .map(|i| Ident::new(&format!("id{}", i), proc_macro2::Span::call_site()))
+                .collect();
+
+            let canonical_ids = id_names.iter().map(|id| quote! { self.egraph.find(*#id) });
+
+            // Generate tuple type: (egg::Id, egg::Id, ...)
+            let id_types = (0..arity).map(|_| quote! { egg::Id });
+
+            quote! {
+                fn #fn_name(&mut self, arg0: egg::Id) -> Vec<(#(#id_types),*)> {
+                    let eclass = self.egraph.find(arg0);
+                    let mut results = Vec::new();
+                    for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
+                        if let #variant([#(#id_names),*]) = node {
+                            // Canonicalize all IDs so pattern matching works with e-class equality
+                            results.push((#(#canonical_ids),*));
+                        }
+                    }
+                    results
                 }
             }
         }
@@ -172,7 +253,6 @@ impl Parse for ConstructorList {
 /// isle_constructor! {
 ///     fn constructor_or(Or, 2);
 ///     fn constructor_not(Not, 1);
-///     fn constructor_join(Join, 3);
 /// }
 /// ```
 #[proc_macro]
@@ -196,8 +276,8 @@ pub fn isle_constructor(input: TokenStream) -> TokenStream {
             .map(|i| Ident::new(&format!("arg{}", i), proc_macro2::Span::call_site()))
             .collect();
 
+        // Non-multi constructor: returns Id directly
         if arity == 1 {
-            // Single child case: Variant(arg0)
             let arg0 = &arg_names[0];
             quote! {
                 fn #fn_name(&mut self, #arg0: egg::Id) -> egg::Id {
@@ -209,7 +289,6 @@ pub fn isle_constructor(input: TokenStream) -> TokenStream {
                 }
             }
         } else {
-            // Multiple children case: Variant([arg0, arg1, ...])
             let params = arg_names.iter().map(|arg| quote! { #arg: egg::Id });
             let args = &arg_names;
 
@@ -220,6 +299,73 @@ pub fn isle_constructor(input: TokenStream) -> TokenStream {
                         self.push_task(Task::ExploreExpr(id, false));
                     }
                     id
+                }
+            }
+        }
+    });
+
+    let output = quote! {
+        #(#functions)*
+    };
+
+    output.into()
+}
+
+/// Generate constructor functions for multi ISLE-integrated operators.
+///
+/// Multi constructors use ISLE's multi-constructor protocol with returns parameter.
+///
+/// # Syntax
+/// ```ignore
+/// isle_multi_constructor! {
+///     fn constructor_or(Or, 2);
+///     fn constructor_not(Not, 1);
+/// }
+/// ```
+#[proc_macro]
+pub fn isle_multi_constructor(input: TokenStream) -> TokenStream {
+    let ConstructorList { items } = parse_macro_input!(input as ConstructorList);
+
+    let functions = items.iter().map(|item| {
+        let fn_name = &item.fn_name;
+        let variant = &item.variant;
+        let arity: usize = item
+            .arity
+            .base10_parse()
+            .expect("Arity must be a positive integer");
+
+        if arity == 0 {
+            return Error::new_spanned(&item.arity, "Arity must be at least 1").to_compile_error();
+        }
+
+        // Generate parameter names: arg0, arg1, arg2, ...
+        let arg_names: Vec<_> = (0..arity)
+            .map(|i| Ident::new(&format!("arg{}", i), proc_macro2::Span::call_site()))
+            .collect();
+
+        // Multi-constructor: takes a returns parameter and extends it
+        if arity == 1 {
+            let arg0 = &arg_names[0];
+            quote! {
+                fn #fn_name(&mut self, #arg0: egg::Id, returns: &mut (impl Extend<egg::Id> + Length)) -> () {
+                    let (id, is_new) = self.egraph.add_with_flag(#variant(#arg0));
+                    if is_new {
+                        self.push_task(Task::ExploreExpr(id, false));
+                    }
+                    returns.extend(Some(id));
+                }
+            }
+        } else {
+            let params = arg_names.iter().map(|arg| quote! { #arg: egg::Id });
+            let args = &arg_names;
+
+            quote! {
+                fn #fn_name(&mut self, #(#params),*, returns: &mut (impl Extend<egg::Id> + Length)) -> () {
+                    let (id, is_new) = self.egraph.add_with_flag(#variant([#(#args),*]));
+                    if is_new {
+                        self.push_task(Task::ExploreExpr(id, false));
+                    }
+                    returns.extend(Some(id));
                 }
             }
         }
@@ -282,7 +428,6 @@ impl Parse for AccessorList {
 /// isle_accessors! {
 ///     Or(extractor_or, constructor_or, 2);
 ///     Not(extractor_not, constructor_not, 1);
-///     Join(extractor_join, constructor_join, 3);
 /// }
 /// ```
 #[proc_macro]
@@ -304,6 +449,7 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
             return vec![err.clone(), err];
         }
 
+        // Non-multi versions
         let extractor = if arity == 1 {
             quote! {
                 fn #extractor_name(&mut self, arg0: egg::Id) -> Option<egg::Id> {
@@ -372,6 +518,144 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
     });
 
     let output = quote! {
+        #(#functions)*
+    };
+
+    output.into()
+}
+
+/// Generate both extractor and constructor functions for multi ISLE-integrated operators.
+///
+/// Multi accessors generate associated types and use the ISLE multi-constructor/extractor protocol.
+///
+/// # Syntax
+/// ```ignore
+/// isle_multi_accessors! {
+///     Or(extractor_or, constructor_or, 2);
+///     Not(extractor_not, constructor_not, 1);
+/// }
+/// ```
+#[proc_macro]
+pub fn isle_multi_accessors(input: TokenStream) -> TokenStream {
+    let AccessorList { items } = parse_macro_input!(input as AccessorList);
+
+    let mut type_defs = Vec::new();
+    let mut functions = Vec::new();
+
+    for item in items.iter() {
+        let extractor_name = &item.extractor;
+        let constructor_name = &item.constructor;
+        let variant = &item.variant;
+        let arity: usize = item
+            .arity
+            .base10_parse()
+            .expect("Arity must be a positive integer");
+
+        if arity == 0 {
+            let err =
+                Error::new_spanned(&item.arity, "Arity must be at least 1").to_compile_error();
+            functions.push(err.clone());
+            functions.push(err);
+            continue;
+        }
+
+        // Multi versions: generate associated types and functions with returns parameters
+
+        // Generate associated type names
+        let extractor_returns_type = Ident::new(
+            &format!("{}_returns", extractor_name),
+            proc_macro2::Span::call_site(),
+        );
+        let constructor_returns_type = Ident::new(
+            &format!("{}_returns", constructor_name),
+            proc_macro2::Span::call_site(),
+        );
+
+        // Generate return value types
+        let extractor_output_type = if arity == 1 {
+            quote! { egg::Id }
+        } else {
+            let id_types = (0..arity).map(|_| quote! { egg::Id });
+            quote! { (#(#id_types),*) }
+        };
+
+        // Generate associated type definitions
+        type_defs.push(quote! {
+            type #extractor_returns_type = ContextIterWrapper<Vec<#extractor_output_type>, Self>;
+        });
+        type_defs.push(quote! {
+            type #constructor_returns_type = ContextIterWrapper<Vec<egg::Id>, Self>;
+        });
+
+        // Generate extractor function
+        let extractor = if arity == 1 {
+            quote! {
+                fn #extractor_name(&mut self, arg0: egg::Id, returns: &mut Self::#extractor_returns_type) -> () {
+                    let eclass = self.egraph.find(arg0);
+                    for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
+                        if let #variant(id) = node {
+                            // Canonicalize the ID so pattern matching works with e-class equality
+                            returns.push(self.egraph.find(*id));
+                        }
+                    }
+                }
+            }
+        } else {
+            let id_names: Vec<_> = (1..=arity)
+                .map(|i| Ident::new(&format!("id{}", i), proc_macro2::Span::call_site()))
+                .collect();
+            let canonical_ids = id_names.iter().map(|id| quote! { self.egraph.find(*#id) });
+
+            quote! {
+                fn #extractor_name(&mut self, arg0: egg::Id, returns: &mut Self::#extractor_returns_type) -> () {
+                    let eclass = self.egraph.find(arg0);
+                    for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
+                        if let #variant([#(#id_names),*]) = node {
+                            // Canonicalize all IDs so pattern matching works with e-class equality
+                            returns.push((#(#canonical_ids),*));
+                        }
+                    }
+                }
+            }
+        };
+
+        // Generate constructor function
+        let arg_names: Vec<_> = (0..arity)
+            .map(|i| Ident::new(&format!("arg{}", i), proc_macro2::Span::call_site()))
+            .collect();
+
+        let constructor = if arity == 1 {
+            let arg0 = &arg_names[0];
+            quote! {
+                fn #constructor_name(&mut self, #arg0: egg::Id, returns: &mut Self::#constructor_returns_type) -> () {
+                    let (id, is_new) = self.egraph.add_with_flag(#variant(#arg0));
+                    if is_new {
+                        self.push_task(Task::ExploreExpr(id, false));
+                    }
+                    returns.push(id);
+                }
+            }
+        } else {
+            let params = arg_names.iter().map(|arg| quote! { #arg: egg::Id });
+            let args = &arg_names;
+
+            quote! {
+                fn #constructor_name(&mut self, #(#params),*, returns: &mut Self::#constructor_returns_type) -> () {
+                    let (id, is_new) = self.egraph.add_with_flag(#variant([#(#args),*]));
+                    if is_new {
+                        self.push_task(Task::ExploreExpr(id, false));
+                    }
+                    returns.push(id);
+                }
+            }
+        };
+
+        functions.push(extractor);
+        functions.push(constructor);
+    }
+
+    let output = quote! {
+        #(#type_defs)*
         #(#functions)*
     };
 
@@ -478,7 +762,10 @@ impl Parse for IsleIntegrationFullArgs {
         // Parse "path"
         let path_key: Ident = input.parse()?;
         if path_key != "path" {
-            return Err(Error::new_spanned(path_key, "Expected 'path' as first argument"));
+            return Err(Error::new_spanned(
+                path_key,
+                "Expected 'path' as first argument",
+            ));
         }
         let _colon: Token![:] = input.parse()?;
         let path_lit: syn::LitStr = input.parse()?;
@@ -491,7 +778,10 @@ impl Parse for IsleIntegrationFullArgs {
             // Parse "max_returns"
             let max_returns_key: Ident = input.parse()?;
             if max_returns_key != "max_returns" {
-                return Err(Error::new_spanned(max_returns_key, "Expected 'max_returns'"));
+                return Err(Error::new_spanned(
+                    max_returns_key,
+                    "Expected 'max_returns'",
+                ));
             }
             let _colon: Token![:] = input.parse()?;
             let value: LitInt = input.parse()?;
