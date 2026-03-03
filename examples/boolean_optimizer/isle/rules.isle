@@ -4,23 +4,23 @@
 
 ;; Declare the terms and operations in our language
 ;; and their extractors and constructors for integration with egg.
-(decl pure Const (bool) Id)
+(decl pure multi Const (bool) Id)
 (extern extractor Const extractor_const)
 (extern constructor Const constructor_const)
 
-(decl pure Var (str) Id)
+(decl pure multi Var (str) Id)
 (extern extractor Var extractor_var)
 (extern constructor Var constructor_var)
 
-(decl And (Id Id) Id)
+(decl multi And (Id Id) Id)
 (extern extractor And extractor_and)
 (extern constructor And constructor_and)
 
-(decl Or (Id Id) Id)
+(decl multi Or (Id Id) Id)
 (extern extractor Or extractor_or)
 (extern constructor Or constructor_or)
 
-(decl Not (Id) Id)
+(decl multi Not (Id) Id)
 (extern extractor Not extractor_not)
 (extern constructor Not constructor_not)
 
