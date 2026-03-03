@@ -14,4 +14,11 @@ fn main() {
             e
         );
     }
+
+    if let Err(e) = intarsia_build::compile_isle_dir("examples/rewrite_explorer/isle") {
+        println!(
+            "cargo:warning=Failed to compile rewrite_explorer ISLE: {}",
+            e
+        );
+    }
 }

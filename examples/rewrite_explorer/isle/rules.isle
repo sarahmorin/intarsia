@@ -1,0 +1,32 @@
+;; Required Id primitive for egg integration
+(type Id (primitive Id))
+
+;; -- TERMS & OPERATORS --
+;; Declare the terms and operations in our language
+;; and their extractors and constructors for integration with egg.
+(decl Source (i64) Id) ;; This is also Op0
+(extern extractor Source extractor_source)
+(extern constructor Source constructor_source)
+
+(decl Op1 (Id) Id)
+(extern extractor Op1 extractor_op1)
+(extern constructor Op1 constructor_op1)
+
+(decl Op2 (Id Id) Id)
+(extern extractor Op2 extractor_op2)
+(extern constructor Op2 constructor_op2)
+
+(decl Net (Id) Id)
+(extern extractor Net extractor_net)
+(extern constructor Net constructor_net)
+
+;; Declare the entrypoint for our rewrite rules.
+(decl multi explore (Id) Id)
+
+;; -- REWRITE RULES --
+
+;; Op1 Insertion: Insert network between a single parameter operator
+(rule
+    (explore (Op1 (Op1 x)))
+    (Op1 (Net (Op1 x)))
+)
