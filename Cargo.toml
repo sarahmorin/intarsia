@@ -40,6 +40,10 @@ path = "examples/database_optimizer/main.rs"
 name = "boolean_optimizer"
 path = "examples/boolean_optimizer/main.rs"
 
+[[example]]
+name = "rewrite_explorer"
+path = "examples/rewrite_explorer/main.rs"
+
 # HACK: Use a local path dependency for egg during development to avoid git overhead and allow for easy code changes
 # [patch.crates-io]
 # egg = { path = "../egg" }
