@@ -85,7 +85,8 @@ pub fn isle_extractor(input: TokenStream) -> TokenStream {
                 fn #fn_name(&mut self, arg0: egg::Id) -> Option<egg::Id> {
                     let node = self.egraph.get_node(arg0);
                     if let #variant(id) = node {
-                        Some(*id)
+                        // Canonicalize the ID so pattern matching works with e-class equality
+                        Some(self.egraph.find(*id))
                     } else {
                         None
                     }
@@ -97,7 +98,7 @@ pub fn isle_extractor(input: TokenStream) -> TokenStream {
                 .map(|i| Ident::new(&format!("id{}", i), proc_macro2::Span::call_site()))
                 .collect();
 
-            let deref_ids = id_names.iter().map(|id| quote! { *#id });
+            let canonical_ids = id_names.iter().map(|id| quote! { self.egraph.find(*#id) });
 
             // Generate tuple type: (egg::Id, egg::Id, ...)
             let id_types = (0..arity).map(|_| quote! { egg::Id });
@@ -106,7 +107,8 @@ pub fn isle_extractor(input: TokenStream) -> TokenStream {
                 fn #fn_name(&mut self, arg0: egg::Id) -> Option<(#(#id_types),*)> {
                     let node = self.egraph.get_node(arg0);
                     if let #variant([#(#id_names),*]) = node {
-                        Some((#(#deref_ids),*))
+                        // Canonicalize all IDs so pattern matching works with e-class equality
+                        Some((#(#canonical_ids),*))
                     } else {
                         None
                     }
@@ -307,7 +309,8 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
                 fn #extractor_name(&mut self, arg0: egg::Id) -> Option<egg::Id> {
                     let node = self.egraph.get_node(arg0);
                     if let #variant(id) = node {
-                        Some(*id)
+                        // Canonicalize the ID so pattern matching works with e-class equality
+                        Some(self.egraph.find(*id))
                     } else {
                         None
                     }
@@ -317,7 +320,7 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
             let id_names: Vec<_> = (1..=arity)
                 .map(|i| Ident::new(&format!("id{}", i), proc_macro2::Span::call_site()))
                 .collect();
-            let deref_ids = id_names.iter().map(|id| quote! { *#id });
+            let canonical_ids = id_names.iter().map(|id| quote! { self.egraph.find(*#id) });
 
             // Generate tuple type: (egg::Id, egg::Id, ...)
             let id_types = (0..arity).map(|_| quote! { egg::Id });
@@ -326,7 +329,8 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
                 fn #extractor_name(&mut self, arg0: egg::Id) -> Option<(#(#id_types),*)> {
                     let node = self.egraph.get_node(arg0);
                     if let #variant([#(#id_names),*]) = node {
-                        Some((#(#deref_ids),*))
+                        // Canonicalize all IDs so pattern matching works with e-class equality
+                        Some((#(#canonical_ids),*))
                     } else {
                         None
                     }
