@@ -84,3 +84,5 @@ pub trait ExplorerHooks<L: Language> {
     /// - The returned IDs will be unioned with the input ID by the framework
     fn explore(&mut self, id: Id) -> Vec<Id>;
 }
+
+// TODO: Add a default hook implementation macro
