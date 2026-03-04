@@ -5,7 +5,7 @@ use egg::{Id, define_language};
 use intarsia::SimpleOptimizerFramework;
 use intarsia::framework::{PropertyAwareLanguage, property::NoProperty};
 use intarsia::{ExplorerHooks, Task};
-use intarsia_macros::{isle_multi_accessors, isle_integration_full};
+use intarsia_macros::{isle_integration_full, isle_multi_accessors};
 
 // 0. ISLE integration: Generate rewrite rules from the .isle file and link them to our optimizer framework.
 isle_integration_full! {
@@ -44,6 +44,7 @@ pub type BoolOptimizer = SimpleOptimizerFramework<BoolLang, NoProperty>;
 // 5. Implement the Context trait for our optimizer to link to ISLE ruleset.
 impl Context for BoolOptimizer {
     // Define the associated types for manually-implemented multi terms (const and var)
+    // TODO: Make a macro to generate these type defs and function signatures
     type extractor_const_returns = ContextIterWrapper<Vec<bool>, Self>;
     type constructor_const_returns = ContextIterWrapper<Vec<Id>, Self>;
     type extractor_var_returns = ContextIterWrapper<Vec<String>, Self>;
@@ -61,16 +62,19 @@ impl Context for BoolOptimizer {
         }
     }
 
-    fn constructor_const(&mut self, arg0: bool, returns: &mut Self::constructor_const_returns) -> () {
+    fn constructor_const(
+        &mut self,
+        arg0: bool,
+        returns: &mut Self::constructor_const_returns,
+    ) -> () {
         let node = if arg0 {
             BoolLang::Bool(true)
         } else {
             BoolLang::Bool(false)
         };
-        let (id, is_new) = self.egraph.add_with_flag(node);
-        if is_new {
-            self.push_task(Task::ExploreExpr(id, false));
-        }
+        let (id, _is_new) = self.egraph.add_with_flag(node);
+        // Since this is terminal, we don't need to explore children
+
         returns.push(id);
     }
 
@@ -86,10 +90,8 @@ impl Context for BoolOptimizer {
 
     fn constructor_var(&mut self, arg0: String, returns: &mut Self::constructor_var_returns) -> () {
         let node = BoolLang::Var(arg0);
-        let (id, is_new) = self.egraph.add_with_flag(node);
-        if is_new {
-            self.push_task(Task::ExploreExpr(id, false));
-        }
+        let (id, _is_new) = self.egraph.add_with_flag(node);
+        // Since this is terminal, we don't need to explore children
         returns.push(id);
     }
 

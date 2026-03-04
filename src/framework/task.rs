@@ -21,8 +21,8 @@ use crate::framework::property::Property;
 /// ## Exploration Tasks
 /// Exploration generates logically equivalent expressions using rewrite rules.
 ///
-/// - `ExploreGroup`: Explore all expressions in an equivalence class
-/// - `ExploreExpr`: Explore a specific expression (apply rules to generate equivalents)
+/// - `ExploreGroup`: Explore all expressions in an equivalence class and apply rewrite rules to generate new expressions
+/// - `ExploreChildren`: Explore the children of a specific expression node
 ///
 /// ## Optimization Tasks
 /// Optimization selects the lowest-cost expression satisfying required properties.
@@ -61,12 +61,11 @@ pub enum Task<P: Property> {
     /// Exploration applies rewrite rules to generate new equivalent expressions.
     ExploreGroup(Id, bool),
 
-    /// Explore a specific expression by applying rewrite rules.
+    /// Explore the children of a specific expression node to ensure they are explored and optimized.
     ///
     /// Fields:
-    /// - `Id`: The expression node to explore
-    /// - `bool`: Whether children have been explored (false on first visit)
+    /// - `Id`: The expression node whose children we want to explore
     ///
-    /// This task ensures all children are explored before applying rules to this expression.
-    ExploreExpr(Id, bool),
+    /// Generates ExploreGroup tasks for each unexplored child group.
+    ExploreChildren(Id),
 }

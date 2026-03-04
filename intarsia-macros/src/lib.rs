@@ -350,7 +350,7 @@ pub fn isle_multi_constructor(input: TokenStream) -> TokenStream {
                 fn #fn_name(&mut self, #arg0: egg::Id, returns: &mut (impl Extend<egg::Id> + Length)) -> () {
                     let (id, is_new) = self.egraph.add_with_flag(#variant(#arg0));
                     if is_new {
-                        self.push_task(Task::ExploreExpr(id, false));
+                        self.push_task(Task::ExploreChildren(id));
                     }
                     returns.extend(Some(id));
                 }
@@ -363,7 +363,7 @@ pub fn isle_multi_constructor(input: TokenStream) -> TokenStream {
                 fn #fn_name(&mut self, #(#params),*, returns: &mut (impl Extend<egg::Id> + Length)) -> () {
                     let (id, is_new) = self.egraph.add_with_flag(#variant([#(#args),*]));
                     if is_new {
-                        self.push_task(Task::ExploreExpr(id, false));
+                        self.push_task(Task::ExploreChildren(id));
                     }
                     returns.extend(Some(id));
                 }
@@ -494,7 +494,7 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
                 fn #constructor_name(&mut self, #arg0: egg::Id) -> egg::Id {
                     let (id, is_new) = self.egraph.add_with_flag(#variant(#arg0));
                     if is_new {
-                        self.push_task(Task::ExploreExpr(id, false));
+                        self.push_task(Task::ExploreChildren(id));
                     }
                     id
                 }
@@ -507,7 +507,7 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
                 fn #constructor_name(&mut self, #(#params),*) -> egg::Id {
                     let (id, is_new) = self.egraph.add_with_flag(#variant([#(#args),*]));
                     if is_new {
-                        self.push_task(Task::ExploreExpr(id, false));
+                        self.push_task(Task::ExploreChildren(id));
                     }
                     id
                 }
@@ -630,7 +630,7 @@ pub fn isle_multi_accessors(input: TokenStream) -> TokenStream {
                 fn #constructor_name(&mut self, #arg0: egg::Id, returns: &mut Self::#constructor_returns_type) -> () {
                     let (id, is_new) = self.egraph.add_with_flag(#variant(#arg0));
                     if is_new {
-                        self.push_task(Task::ExploreExpr(id, false));
+                        self.push_task(Task::ExploreChildren(id));
                     }
                     returns.push(id);
                 }
@@ -643,7 +643,7 @@ pub fn isle_multi_accessors(input: TokenStream) -> TokenStream {
                 fn #constructor_name(&mut self, #(#params),*, returns: &mut Self::#constructor_returns_type) -> () {
                     let (id, is_new) = self.egraph.add_with_flag(#variant([#(#args),*]));
                     if is_new {
-                        self.push_task(Task::ExploreExpr(id, false));
+                        self.push_task(Task::ExploreChildren(id));
                     }
                     returns.push(id);
                 }

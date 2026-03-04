@@ -7,7 +7,7 @@ use super::ConstructorVec;
 use super::{DbOptimizer, language::Optlang, types::ColSet};
 
 use intarsia::framework::Task;
-use intarsia_macros::isle_accessors;
+use intarsia_macros::isle_multi_accessors;
 use log::warn;
 
 // Implement the Context trait for OptimizerContext, which is required by ISLE-generated code.
@@ -28,6 +28,10 @@ use log::warn;
 // The run method calls the explore and optimize entrypoints and handles merging and rebuilding the egraph as needed.
 #[allow(unused_variables)]
 impl Context for DbOptimizer {
+    // Define associated types for manually-implemented multi terms
+    type extractor_const_val_returns = ContextIterWrapper<Vec<value>, Self>;
+    type constructor_const_val_returns = ContextIterWrapper<Vec<Id>, Self>;
+
     fn extractor_combine_columns(&mut self, arg0: usize) -> Option<(usize, usize)> {
         warn!(
             "extractor_combine_columns doesn't make sense, we shouldn't call it in the first place"
@@ -131,34 +135,37 @@ impl Context for DbOptimizer {
         Some(id)
     }
 
-    fn extractor_const_val(&mut self, arg0: Id) -> Option<value> {
-        let node = self.egraph.get_node(arg0);
-        match node {
-            Optlang::Int(i) => Some(value::Int { val: *i }),
-            Optlang::Bool(b) => Some(value::Bool { val: *b }),
-            Optlang::Str(s) => Some(value::Str { val: s.clone() }),
-            _ => None,
+    fn extractor_const_val(&mut self, arg0: Id, returns: &mut Self::extractor_const_val_returns) -> () {
+        // Search the entire e-class for all constant value nodes
+        let eclass = self.egraph.find(arg0);
+        for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
+            match node {
+                Optlang::Int(i) => returns.push(value::Int { val: *i }),
+                Optlang::Bool(b) => returns.push(value::Bool { val: *b }),
+                Optlang::Str(s) => returns.push(value::Str { val: s.clone() }),
+                _ => {},
+            }
         }
     }
 
-    fn constructor_const_val(&mut self, arg0: &value) -> Id {
+    fn constructor_const_val(&mut self, arg0: &value, returns: &mut Self::constructor_const_val_returns) -> () {
         let node = match arg0 {
             value::Int { val } => Optlang::Int(*val),
             value::Bool { val } => Optlang::Bool(*val),
             value::Str { val } => Optlang::Str(val.clone()),
         };
         let (id, _) = self.egraph.add_with_flag(node);
-        id
+        returns.push(id);
     }
 
-    // For the extractors and constructors for the other operators, we can use the isle_accessors macro to generate them automatically.
+    // For the extractors and constructors for the other operators, we can use the isle_multi_accessors macro to generate them automatically.
     // This macro generates both the extractor and constructor for a given operator, following the patterns described above.
     // The arguments to the macro are:
     // - The operator variant (e.g., Optlang::Add)
     // - The name of the extractor function to generate (e.g., extractor_add)
     // - The name of the constructor function to generate (e.g., constructor_add)
     // - The number of arguments the operator takes (e.g., 2 for Add)
-    isle_accessors! {
+    isle_multi_accessors! {
         // Binary logical operators
         Optlang::And(extractor_and, constructor_and, 2);
         Optlang::Or(extractor_or, constructor_or, 2);
