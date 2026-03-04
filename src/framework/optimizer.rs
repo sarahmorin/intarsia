@@ -84,7 +84,7 @@ where
     ///
     /// Maps (group_id, required_properties) to the ID of the best expression node
     /// that satisfies those properties.
-    // TODO: MAke accessors instead
+    // TODO: Make accessors instead
     pub optimized_memo: HashMap<(Id, P), Id>,
 
     /// Memoized costs for each (group, property) pair
@@ -167,8 +167,8 @@ where
             match task {
                 Task::OptimizeGroup(_, _, _, _) => self.run_optimize_group(task),
                 Task::OptimizeExpr(_, _) => self.run_optimize_expr(task),
-                Task::ExploreExpr(_, _) => self.run_explore_expr(task),
                 Task::ExploreGroup(_, _) => self.run_explore_group(task),
+                Task::ExploreChildren(_) => self.run_explore_children(task),
             }
         }
     }
@@ -509,56 +509,90 @@ where
 
         // If expressions haven't been explored yet, explore them
         if !explored {
+            debug!("Scheduling explore of group {:?} and its children", id);
             self.task_stack.push(Task::ExploreGroup(id, true));
             for (node_id, _) in self.egraph.nodes_in_class(id) {
-                self.task_stack.push(Task::ExploreExpr(node_id, false));
+                self.task_stack.push(Task::ExploreChildren(node_id));
             }
             return;
+        }
+
+        // Once I've explored my children, I explore myself by applying rewrite rules.
+        // Since the rewrite rules might generate exploration tasks on my children,
+        // I want to ensure to explore myself again *after* I've explored my children.
+        // So I push an ExploreGroup task for myself with explored=true to the stack, which will be processed after all my children have been explored.
+        self.task_stack.push(Task::ExploreGroup(id, true));
+
+        // Apply rewrite rules to this group
+        let new_ids = self.explore(id);
+
+        // Union new expressions with this group and track if we discovered any new equivalences
+        let mut changed = false;
+        for new_id in &new_ids {
+            if self.egraph.union(id, *new_id) {
+                changed = true;
+            }
+        }
+
+        // If we discovered new expressions, we need to rebuild the e-graph to propagate equivalences.
+        if changed {
+            self.egraph.rebuild();
+        }
+
+        debug!(
+            "Finished exploring group {:?}. Discovered {} equivalent expressions. Changed: {}",
+            id,
+            new_ids.len(),
+            changed
+        );
+
+        // If we did not discover any new equivalences AND my own explore group is the next task on the stack,
+        // then we can skip re-exploring myself since we know we won't find anything new.
+        if !changed {
+            if let Some(Task::ExploreGroup(next_id, _)) = self.task_stack.last() {
+                if *next_id == id {
+                    debug!(
+                        "Skipping redundant explore of group {:?} since no new equivalences were found.",
+                        id
+                    );
+                    self.task_stack.pop();
+                }
+            }
         }
     }
 
-    /// Run an explore expr task.
+    /// Run an explore children task.
     ///
-    /// This explores children first, then applies rewrite rules to this expression.
-    fn run_explore_expr(&mut self, task: Task<P>)
+    /// This generates ExploreGroup tasks for all the children of this expression to ensure they are explored before exploring this expression.
+    fn run_explore_children(&mut self, task: Task<P>)
     where
         Self: ExplorerHooks<L>,
     {
-        let (id, children_explored) = match task {
-            Task::ExploreExpr(id, children_explored) => (id, children_explored),
-            _ => panic!("run_explore_expr called with non-explore task"),
+        let id = match task {
+            Task::ExploreChildren(id) => id,
+            _ => panic!("run_explore_children called with non-explore children task"),
         };
-        debug!(
-            "run_explore_expr: id={:?}, children_explored={:?}",
-            id, children_explored
-        );
+        debug!("run_explore_children: id={:?}", id);
 
-        // If children haven't been explored yet, explore them first
-        if !children_explored {
-            self.task_stack.push(Task::ExploreExpr(id, true));
-            for child in self.egraph.get_node(id).children() {
-                // Canonicalize child ID before checking tracking structures
-                let canonical_child = self.egraph.find(*child);
-                if self.explored_groups.contains(&canonical_child) {
-                    // Skip if already explored (cycle detection)
-                    continue;
-                }
-                self.task_stack
-                    .push(Task::ExploreGroup(canonical_child, false));
+        let node = self.egraph.get_node(id);
+        for child in node.children() {
+            // Canonicalize child ID before checking tracking structures
+            let canonical_child = self.egraph.find(*child);
+            if self.explored_groups.contains(&canonical_child) {
+                // Skip if already explored (cycle detection)
+                debug!(
+                    "Skipping explore of child group {:?} since it's already explored.",
+                    canonical_child
+                );
+                continue;
             }
-            return;
+            debug!(
+                "Scheduling explore of child group {:?} for parent node {:?}",
+                canonical_child, id
+            );
+            self.task_stack
+                .push(Task::ExploreGroup(canonical_child, false));
         }
-
-        // Apply rewrite rules to this expression
-        let new_ids = self.explore(id);
-
-        // Union new expressions with this one
-        for new_id in new_ids {
-            self.egraph.union(id, new_id);
-        }
-
-        // Rebuild e-graph to propagate equivalences
-        self.egraph.rebuild();
     }
 
     /// Compute the cost of an expression with required properties using memoized costs.
