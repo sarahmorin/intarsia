@@ -35,6 +35,8 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+exclude = ["docs"]
+
 [features]
 default = []
 build-helpers = ["dep:cranelift-isle"]
