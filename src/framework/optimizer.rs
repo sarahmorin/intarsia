@@ -21,10 +21,12 @@ use crate::framework::{
 ///
 /// # Type Parameters
 ///
-/// * `L` - The language type (must implement `Language` and `PropertyAwareLanguage<P>`)
-/// * `P` - The property type (must implement `Property`)
-/// * `C` - The cost domain type (must implement `CostDomain<P>`)
+/// * `L` - The language type (must implement [`Language`] and [`PropertyAwareLanguage`])
+/// * `P` - The property type (must implement [`Property`])
+/// * `C` - The cost domain type (must implement [`CostDomain`])
 /// * `UserData` - User-defined data accessible during optimization
+///
+/// [`Language`]: https://docs.rs/egg/latest/egg/trait.Language.html
 ///
 /// # Examples
 ///
@@ -62,10 +64,14 @@ where
     P: Property,
     C: CostDomain<P>,
 {
-    /// The e-graph holding all expressions and their equivalences
+    /// The e-graph holding all expressions and their equivalences.
+    ///
+    /// See [`egg::EGraph`] for more information.
+    ///
+    /// [`egg::EGraph`]: https://docs.rs/egg/latest/egg/struct.EGraph.html
     pub egraph: EGraph<L, ()>,
 
-    /// User-defined data accessible during optimization
+    /// User-defined data accessible during optimization.
     ///
     /// This field allows you to store domain-specific data that your cost function
     /// and ISLE rules need to access (e.g., database catalog, statistics, configuration).
@@ -119,11 +125,15 @@ where
 
     /// Initialize the optimizer with an initial expression.
     ///
-    /// Adds the expression to the e-graph and returns its ID.
+    /// Adds the expression to the e-graph and returns its [`Id`].
+    ///
+    /// [`Id`]: https://docs.rs/egg/latest/egg/struct.Id.html
     ///
     /// # Arguments
     ///
-    /// * `expr` - The initial expression to optimize
+    /// * `expr` - The initial expression to optimize (see [`RecExpr`])
+    ///
+    /// [`RecExpr`]: https://docs.rs/egg/latest/egg/struct.RecExpr.html
     ///
     /// # Returns
     ///
@@ -146,14 +156,14 @@ where
     ///
     /// # Optimization Process
     ///
-    /// 1. Push initial OptimizeGroup task with bottom (no requirements) properties
+    /// 1. Push initial [`Task::OptimizeGroup`] with bottom (no requirements) properties
     /// 2. Process tasks from the stack:
-    ///    - ExploreGroup/ExploreExpr: Generate equivalent expressions via rewrite rules
-    ///    - OptimizeExpr: Compute costs of expressions
-    ///    - OptimizeGroup: Select best expression for required properties
+    ///    - [`Task::ExploreGroup`]/[`Task::ExploreChildren`]: Generate equivalent expressions via rewrite rules
+    ///    - [`Task::OptimizeExpr`]: Compute costs of expressions
+    ///    - [`Task::OptimizeGroup`]: Select best expression for required properties
     /// 3. Continue until task stack is empty
     ///
-    /// After `run()` completes, use `extract()` to get the best expression.
+    /// After `run()` completes, use [`extract()`](Self::extract) to get the best expression.
     pub fn run(&mut self, id: Id)
     where
         Self: ExplorerHooks<L> + CostFunction<L, P, C>,
@@ -187,7 +197,7 @@ where
     /// Extract the best expression for the given group.
     ///
     /// Returns the lowest-cost expression satisfying the default (bottom) properties.
-    /// Assumes that `run()` has already been called to perform optimization.
+    /// Assumes that [`run()`](Self::run) has already been called to perform optimization.
     ///
     /// # Arguments
     ///
@@ -195,11 +205,13 @@ where
     ///
     /// # Returns
     ///
-    /// A RecExpr containing the best expression tree
+    /// A [`RecExpr`] containing the best expression tree
+    ///
+    /// [`RecExpr`]: https://docs.rs/egg/latest/egg/struct.RecExpr.html
     ///
     /// # Panics
     ///
-    /// May panic if the expression hasn't been optimized yet (call `run()` first).
+    /// May panic if the expression hasn't been optimized yet (call [`run()`](Self::run) first).
     pub fn extract(&self, id: Id) -> RecExpr<L> {
         let (_cost, best_expr) = self.extract_with_cost(id);
         best_expr
@@ -207,7 +219,7 @@ where
 
     /// Extract the best expression along with its cost.
     ///
-    /// Assumes that `run()` has already been called to perform optimization.
+    /// Assumes that [`run()`](Self::run) has already been called to perform optimization.
     ///
     /// # Arguments
     ///
@@ -650,5 +662,21 @@ impl<L: Language> egg::CostFunction<L> for AstSize {
     }
 }
 
-/// A convenient type alias for a simple optimizer framework over a language and property using SimpleCost and usize as the cost domain.
+/// A convenient type alias for a simple optimizer framework.
+///
+/// This uses [`SimpleCost`] as the cost domain and `()` (unit type) for user data,
+/// making it easy to get started without defining custom types.
+///
+/// # Type Parameters
+///
+/// * `L` - The language type
+/// * `P` - The property type
+///
+/// # Example
+///
+/// ```rust,ignore
+/// type MyOptimizer = SimpleOptimizerFramework<MyLang, MyProperty>;
+///
+/// let mut optimizer = MyOptimizer::new(());
+/// ```
 pub type SimpleOptimizerFramework<L, P> = OptimizerFramework<L, P, SimpleCost<P>, ()>;
