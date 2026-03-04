@@ -1,5 +1,13 @@
 //! Build-time helpers for compiling ISLE DSL files to Rust code.
 //!
+//! This crate provides utilities for [Cargo build scripts] to compile
+//! [ISLE] (Instruction Selection Lowering Expressions) domain-specific language
+//! files into Rust code. It uses the [`cranelift-isle`] compiler internally.
+//!
+//! [ISLE]: https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/isle/docs/language-reference.md
+//! [Cargo build scripts]: https://doc.rust-lang.org/cargo/reference/build-scripts.html
+//! [`cranelift-isle`]: https://docs.rs/cranelift-isle/
+//!
 //! # Example
 //!
 //! In your `Cargo.toml`:
@@ -28,6 +36,8 @@ use std::path::{Path, PathBuf};
 /// and compiles all `.isle` files found there. The generated Rust code
 /// is written to the same `isle/` directory with a `.rs` extension.
 ///
+/// This is a convenience wrapper around [`compile_isle_dir`] with a fixed path.
+///
 /// # Directory Structure
 ///
 /// ```text
@@ -53,8 +63,10 @@ use std::path::{Path, PathBuf};
 /// Returns an error if:
 /// - The `isle/` directory doesn't exist
 /// - No `.isle` files are found
-/// - ISLE compilation fails
-/// - File I/O fails
+/// - ISLE compilation fails (see [`cranelift_isle::error::Errors`])
+/// - File I/O fails (see [`std::io::Error`])
+///
+/// [`cranelift_isle::error::Errors`]: https://docs.rs/cranelift-isle/latest/cranelift_isle/error/struct.Errors.html
 pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
     compile_isle_dir("isle")
 }
@@ -62,8 +74,10 @@ pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
 /// Compile all ISLE files in a specified directory.
 ///
 /// This function finds all `.isle` files in the given directory,
-/// compiles them using the ISLE compiler, and writes the generated
-/// Rust code to `.rs` files in the same directory.
+/// compiles them using the ISLE compiler from [`cranelift-isle`], and writes
+/// the generated Rust code to `.rs` files in the same directory.
+///
+/// [`cranelift-isle`]: https://docs.rs/cranelift-isle/
 ///
 /// # Arguments
 ///
@@ -89,8 +103,10 @@ pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
 /// Returns an error if:
 /// - The directory doesn't exist
 /// - No `.isle` files are found
-/// - ISLE compilation fails
-/// - File I/O fails
+/// - ISLE compilation fails (see [`cranelift_isle::error::Errors`])
+/// - File I/O fails (see [`std::io::Error`])
+///
+/// [`cranelift_isle::error::Errors`]: https://docs.rs/cranelift-isle/latest/cranelift_isle/error/struct.Errors.html
 pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
     let isle_dir = isle_dir.as_ref();
 
@@ -134,9 +150,11 @@ pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>
 
 /// Compile a single ISLE file to Rust code.
 ///
-/// This is a lower-level function that compiles a single ISLE file.
-/// The generated Rust code is written to a `.rs` file in the same
-/// directory as the input file.
+/// This is a lower-level function that compiles a single ISLE file using
+/// [`cranelift_isle::compile::from_files`]. The generated Rust code is written
+/// to a `.rs` file in the same directory as the input file.
+///
+/// [`cranelift_isle::compile::from_files`]: https://docs.rs/cranelift-isle/latest/cranelift_isle/compile/fn.from_files.html
 ///
 /// # Arguments
 ///
@@ -156,8 +174,10 @@ pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>
 ///
 /// Returns an error if:
 /// - The file doesn't exist
-/// - ISLE compilation fails
-/// - File I/O fails
+/// - ISLE compilation fails (see [`cranelift_isle::error::Errors`])
+/// - File I/O fails (see [`std::io::Error`])
+///
+/// [`cranelift_isle::error::Errors`]: https://docs.rs/cranelift-isle/latest/cranelift_isle/error/struct.Errors.html
 pub fn compile_isle_file(isle_file: impl AsRef<Path>) -> Result<(), Box<dyn Error>> {
     let isle_file = isle_file.as_ref();
 
@@ -193,6 +213,7 @@ pub fn compile_isle_file(isle_file: impl AsRef<Path>) -> Result<(), Box<dyn Erro
 /// Compile multiple specific ISLE files.
 ///
 /// This is a convenience function for compiling a list of ISLE files.
+/// It calls [`compile_isle_file`] for each file in the provided slice.
 ///
 /// # Example
 ///
