@@ -1,15 +1,73 @@
-//! # ISLE Integration Macros
+//! Procedural macros for integrating [ISLE] DSL with Intarsia optimizers.
 //!
-//! This crate provides macros to help integrate ISLE-generated code into your Rust optimizer framework.
-//! The main macros are:
-//! - `isle_extractor!`: Generates extractor functions for ISLE operators (non-multi).
-//! - `isle_constructor!`: Generates constructor functions for ISLE operators (non-multi).
-//! - `isle_accessors!`: Generates both extractors and constructors for ISLE operators (non-multi).
-//! - `isle_multi_extractor!`: Generates extractor functions for multi ISLE operators.
-//! - `isle_multi_constructor!`: Generates constructor functions for multi ISLE operators.
-//! - `isle_multi_accessors!`: Generates both extractors and constructors for multi ISLE operators.
-//! - `isle_integration!`: Generates type definitions required by ISLE.
-//! - `isle_integration_full!`: Combines module declaration and type definitions for ISLE integration.
+//! This crate provides macros to help integrate ISLE-generated code into your Rust optimizer
+//! framework. [ISLE] (Instruction Selection Lowering Expressions) is a domain-specific language
+//! for pattern matching and rewriting, originally developed for [Cranelift].
+//!
+//! [ISLE]: https://github.com/bytecodealliance/wasmtime/blob/main/cranelift/isle/docs/language-reference.md
+//! [Cranelift]: https://cranelift.dev/
+//!
+//! # Overview
+//!
+//! The macros fall into three categories:
+//!
+//! ## 1. Accessor Generation (Non-Multi)
+//!
+//! For basic ISLE operators that match/construct single nodes:
+//! - [`isle_extractor!`] - Pattern matching (e-node → children IDs)
+//! - [`isle_constructor!`] - Node construction (children IDs → e-node)
+//! - [`isle_accessors!`] - Both extractor and constructor
+//!
+//! ## 2. Multi-Accessor Generation
+//!
+//! For ISLE multi-extractors/constructors that explore all nodes in an e-class:
+//! - [`isle_multi_extractor!`] - Match all nodes in an e-class
+//! - [`isle_multi_constructor!`] - Construct and add to results vector
+//! - [`isle_multi_accessors!`] - Both multi-extractor and multi-constructor
+//!
+//! ## 3. Integration Setup
+//!
+//! - [`isle_integration!`] - Generate required type definitions
+//! - [`isle_integration_full!`] - Module declaration + type definitions
+//!
+//! # Quick Start Example
+//!
+//! ```ignore
+//! // In your optimizer module (e.g., src/optimizer.rs)
+//! use intarsia_macros::{isle_integration, isle_accessors};
+//!
+//! // 1. Declare the ISLE-generated rules module
+//! #[allow(dead_code, unused_variables, unused_imports, non_snake_case)]
+//! #[path = "isle/rules.rs"]
+//! pub(crate) mod rules;
+//!
+//! // 2. Generate required ISLE type definitions
+//! isle_integration!();
+//!
+//! // 3. In your Context implementation, generate accessor functions
+//! impl rules::Context for MyContext {
+//!     isle_accessors! {
+//!         And(extractor_and, constructor_and, 2);
+//!         Or(extractor_or, constructor_or, 2);
+//!         Not(extractor_not, constructor_not, 1);
+//!     }
+//!     // ... other required methods
+//! }
+//! ```
+//!
+//! # Build Script Integration
+//!
+//! Use [`intarsia-build`] to compile ISLE files in your `build.rs`:
+//!
+//! [`intarsia-build`]: https://docs.rs/intarsia-build/
+//!
+//! ```no_run
+//! // build.rs
+//! fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     intarsia_build::compile_isle_auto()?;
+//!     Ok(())
+//! }
+//! ```
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -57,15 +115,38 @@ impl Parse for ExtractorList {
 }
 
 /// Generate extractor functions for ISLE-integrated operators.
-/// Generate extractor functions for ISLE-integrated operators.
+///
+/// Extractors are used by ISLE for pattern matching. They check if an [`egg::Id`]
+/// refers to a specific e-node variant and extract its children.
+///
+/// For **non-multi** extractors, only the canonical node in the e-class is checked.
+/// Use [`isle_multi_extractor!`] to check all nodes in an e-class.
+///
+/// [`egg::Id`]: https://docs.rs/egg/latest/egg/struct.Id.html
 ///
 /// # Syntax
+///
 /// ```ignore
 /// isle_extractor! {
-///     fn extractor_or(Or, 2);
-///     fn extractor_not(Not, 1);
+///     fn extractor_name(VariantName, arity);
+///     // ...
 /// }
 /// ```
+///
+/// # Example
+///
+/// ```ignore
+/// impl rules::Context for MyContext {
+///     isle_extractor! {
+///         fn extractor_or(Or, 2);   // Binary operator
+///         fn extractor_not(Not, 1); // Unary operator
+///     }
+/// }
+/// ```
+///
+/// This generates:
+/// - `fn extractor_or(&mut self, arg0: egg::Id) -> Option<(egg::Id, egg::Id)>`
+/// - `fn extractor_not(&mut self, arg0: egg::Id) -> Option<egg::Id>`
 #[proc_macro]
 pub fn isle_extractor(input: TokenStream) -> TokenStream {
     let ExtractorList { items } = parse_macro_input!(input as ExtractorList);
@@ -128,15 +209,30 @@ pub fn isle_extractor(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-/// Generate extractor functions for multi ISLE-integrated operators.
+/// Generate multi-extractor functions for ISLE-integrated operators.
 ///
-/// Multi extractors check all nodes in an e-class and return all matches.
+/// Multi-extractors check **all nodes** in an e-class (not just the canonical node)
+/// and return all matches. This is used by ISLE for exhaustive pattern matching.
+///
+/// See [`isle_extractor!`] for the non-multi version.
 ///
 /// # Syntax
+///
 /// ```ignore
 /// isle_multi_extractor! {
-///     fn extractor_or(Or, 2);
-///     fn extractor_not(Not, 1);
+///     fn extractor_name(VariantName, arity);
+///     // ...
+/// }
+/// ```
+///
+/// # Example
+///
+/// ```ignore
+/// impl rules::Context for MyContext {
+///     isle_multi_extractor! {
+///         fn extractor_or(Or, 2);   // Returns Vec<(egg::Id, egg::Id)>
+///         fn extractor_not(Not, 1); // Returns Vec<egg::Id>
+///     }
 /// }
 /// ```
 #[proc_macro]
@@ -248,13 +344,37 @@ impl Parse for ConstructorList {
 
 /// Generate constructor functions for ISLE-integrated operators.
 ///
+/// Constructors are used by ISLE to build new e-nodes. They take child [`egg::Id`]s
+/// as arguments and return the ID of the constructed node.
+///
+/// For **non-multi** constructors, the function returns a single [`egg::Id`].
+/// Use [`isle_multi_constructor!`] for the multi-constructor protocol.
+///
+/// [`egg::Id`]: https://docs.rs/egg/latest/egg/struct.Id.html
+///
 /// # Syntax
+///
 /// ```ignore
 /// isle_constructor! {
-///     fn constructor_or(Or, 2);
-///     fn constructor_not(Not, 1);
+///     fn constructor_name(VariantName, arity);
+///     // ...
 /// }
 /// ```
+///
+/// # Example
+///
+/// ```ignore
+/// impl rules::Context for MyContext {
+///     isle_constructor! {
+///         fn constructor_or(Or, 2);   // Binary operator
+///         fn constructor_not(Not, 1); // Unary operator
+///     }
+/// }
+/// ```
+///
+/// This generates:
+/// - `fn constructor_or(&mut self, arg0: egg::Id, arg1: egg::Id) -> egg::Id`
+/// - `fn constructor_not(&mut self, arg0: egg::Id) -> egg::Id`
 #[proc_macro]
 pub fn isle_constructor(input: TokenStream) -> TokenStream {
     let ConstructorList { items } = parse_macro_input!(input as ConstructorList);
@@ -311,17 +431,36 @@ pub fn isle_constructor(input: TokenStream) -> TokenStream {
     output.into()
 }
 
-/// Generate constructor functions for multi ISLE-integrated operators.
+/// Generate multi-constructor functions for ISLE-integrated operators.
 ///
-/// Multi constructors use ISLE's multi-constructor protocol with returns parameter.
+/// Multi-constructors use ISLE's multi-constructor protocol, which allows a rule
+/// to produce multiple results. The function extends a `returns` parameter instead
+/// of returning a value directly.
+///
+/// See [`isle_constructor!`] for the non-multi version.
 ///
 /// # Syntax
+///
 /// ```ignore
 /// isle_multi_constructor! {
-///     fn constructor_or(Or, 2);
-///     fn constructor_not(Not, 1);
+///     fn constructor_name(VariantName, arity);
+///     // ...
 /// }
 /// ```
+///
+/// # Example
+///
+/// ```ignore
+/// impl rules::Context for MyContext {
+///     isle_multi_constructor! {
+///         fn constructor_or(Or, 2);
+///         fn constructor_not(Not, 1);
+///     }
+/// }
+/// ```
+///
+/// This generates functions with a `returns` parameter:
+/// - `fn constructor_or(&mut self, arg0: egg::Id, arg1: egg::Id, returns: &mut impl Extend<egg::Id>)`
 #[proc_macro]
 pub fn isle_multi_constructor(input: TokenStream) -> TokenStream {
     let ConstructorList { items } = parse_macro_input!(input as ConstructorList);
@@ -423,13 +562,33 @@ impl Parse for AccessorList {
 
 /// Generate both extractor and constructor functions for ISLE-integrated operators.
 ///
+/// This is a convenience macro that combines [`isle_extractor!`] and [`isle_constructor!`]
+/// in a single invocation. Note the different syntax: variant comes first, followed by
+/// both function names.
+///
 /// # Syntax
+///
 /// ```ignore
 /// isle_accessors! {
-///     Or(extractor_or, constructor_or, 2);
-///     Not(extractor_not, constructor_not, 1);
+///     VariantName(extractor_name, constructor_name, arity);
+///     // ...
 /// }
 /// ```
+///
+/// # Example
+///
+/// ```ignore
+/// impl rules::Context for MyContext {
+///     isle_accessors! {
+///         Or(extractor_or, constructor_or, 2);
+///         Not(extractor_not, constructor_not, 1);
+///         Constant(extractor_constant, constructor_constant, 1);
+///     }
+/// }
+/// ```
+///
+/// This is equivalent to calling both [`isle_extractor!`] and [`isle_constructor!`]
+/// with the same variants.
 #[proc_macro]
 pub fn isle_accessors(input: TokenStream) -> TokenStream {
     let AccessorList { items } = parse_macro_input!(input as AccessorList);
@@ -526,15 +685,33 @@ pub fn isle_accessors(input: TokenStream) -> TokenStream {
 
 /// Generate both extractor and constructor functions for multi ISLE-integrated operators.
 ///
-/// Multi accessors generate associated types and use the ISLE multi-constructor/extractor protocol.
+/// This combines [`isle_multi_extractor!`] and [`isle_multi_constructor!`], and also
+/// generates the required associated types for ISLE's multi-extractor/constructor protocol.
 ///
 /// # Syntax
+///
 /// ```ignore
 /// isle_multi_accessors! {
-///     Or(extractor_or, constructor_or, 2);
-///     Not(extractor_not, constructor_not, 1);
+///     VariantName(extractor_name, constructor_name, arity);
+///     // ...
 /// }
 /// ```
+///
+/// # Example
+///
+/// ```ignore
+/// impl rules::Context for MyContext {
+///     isle_multi_accessors! {
+///         Or(extractor_or, constructor_or, 2);
+///         Not(extractor_not, constructor_not, 1);
+///     }
+/// }
+/// ```
+///
+/// This generates:
+/// - Associated types: `type extractor_or_returns = ...`
+/// - Multi-extractor function with `returns` parameter
+/// - Multi-constructor function with `returns` parameter
 #[proc_macro]
 pub fn isle_multi_accessors(input: TokenStream) -> TokenStream {
     let AccessorList { items } = parse_macro_input!(input as AccessorList);
@@ -690,21 +867,26 @@ impl Parse for IsleIntegrationArgs {
     }
 }
 
-/// Integrate ISLE-generated code into your optimizer.
+/// Generate type definitions required by ISLE-generated code.
 ///
-/// This macro generates the type definitions required by ISLE (`ConstructorVec`, `MAX_ISLE_RETURNS`).
-/// You still need to manually declare the `rules` module with `#[path]` attribute.
+/// This macro generates `ConstructorVec<T>` and `MAX_ISLE_RETURNS` which are referenced
+/// by ISLE-generated multi-constructor functions. You still need to manually declare the
+/// `rules` module with a [`#[path]`][path-attr] attribute.
+///
+/// See [`isle_integration_full!`] for a version that also declares the module.
+///
+/// [path-attr]: https://doc.rust-lang.org/reference/items/modules.html#the-path-attribute
 ///
 /// # Arguments
 ///
-/// * `max_returns` - (Optional) Maximum number of values a multiconstructor can return.
-///   Defaults to 100.
+/// * `max_returns: usize` - (Optional) Maximum number of values a multi-constructor can return.
+///   Defaults to 100. Increase if you have rules generating many alternatives.
 ///
 /// # Example
 ///
 /// ```ignore
-/// // In your optimizer module (e.g., examples/my_optimizer/mod.rs)
-/// use intarsia::isle_integration;
+/// // In your optimizer module (e.g., src/optimizer/mod.rs)
+/// use intarsia_macros::isle_integration;
 ///
 /// // First, declare the rules module with the path to generated code
 /// #[allow(dead_code, unused_variables, unused_imports, non_snake_case)]
@@ -717,17 +899,18 @@ impl Parse for IsleIntegrationArgs {
 /// isle_integration!();
 ///
 /// // Or with custom max_returns:
-/// // isle_integration!(max_returns: 200);
+/// isle_integration!(max_returns: 200);
 /// ```
 ///
-/// # What This Macro Generates
+/// # Generated Code
 ///
 /// ```ignore
+/// /// Type alias for vectors returned by ISLE multi-constructors.
 /// pub type ConstructorVec<T> = Vec<T>;
+///
+/// /// Maximum number of values an ISLE multi-constructor can return.
 /// pub const MAX_ISLE_RETURNS: usize = 100;
 /// ```
-///
-/// These types are required by ISLE-generated multi-constructor functions.
 #[proc_macro]
 pub fn isle_integration(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as IsleIntegrationArgs);
@@ -797,23 +980,25 @@ impl Parse for IsleIntegrationFullArgs {
     }
 }
 
-/// Complete ISLE integration including module declaration.
+/// Complete ISLE integration including module declaration and type definitions.
 ///
-/// This macro generates both the module declaration and type definitions.
-/// It's more convenient than `isle_integration!` but requires the path to be
-/// relative to the current module.
+/// This is a convenience macro that combines module declaration (with appropriate `#[allow]`
+/// attributes) and [`isle_integration!`] in a single invocation.
+///
+/// Use this for simpler integration, or use [`isle_integration!`] if you need custom
+/// module attributes.
 ///
 /// # Arguments
 ///
-/// * `path` - Path to the generated `.rs` file, relative to current module
-/// * `max_returns` - (Optional) Maximum number of values a multiconstructor can return
+/// * `path: "..."` - Path to the generated `.rs` file, relative to current module
+/// * `max_returns: usize` - (Optional) Maximum number of values a multi-constructor can return
 ///
 /// # Example
 ///
 /// ```ignore
-/// use intarsia::isle_integration_full;
+/// use intarsia_macros::isle_integration_full;
 ///
-/// // Assuming isle/rules.rs exists relative to current module
+/// // In your optimizer module, assuming isle/rules.rs exists
 /// isle_integration_full! {
 ///     path: "isle/rules.rs",
 /// }
@@ -824,6 +1009,11 @@ impl Parse for IsleIntegrationFullArgs {
 ///     max_returns: 200,
 /// }
 /// ```
+///
+/// # Generated Code
+///
+/// This generates a `rules` module declaration with lint suppressions plus the type
+/// definitions from [`isle_integration!`].
 #[proc_macro]
 pub fn isle_integration_full(input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(input as IsleIntegrationFullArgs);
