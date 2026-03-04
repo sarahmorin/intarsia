@@ -24,9 +24,9 @@ cranelift-isle = { version = "0.128.1", features = [
     "log",
     "logging",
 ], optional = true }
-# egg = { git = "https://github.com/sarahmorin/egg.git", branch = "main" }
+egg = { git = "https://github.com/sarahmorin/egg.git", branch = "intarsia" }
 # HACK: Use a local path dependency for egg during development to avoid git overhead and allow for easy code changes
-egg = { path = "../egg" }
+# egg = { path = "../egg" }
 indexmap = "2.13.0"
 log = "0.4.29"
 intarsia-macros = { path = "intarsia-macros" }
