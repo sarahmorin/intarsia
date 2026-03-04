@@ -1,10 +1,16 @@
 [package]
 name = "intarsia-build"
-version = "0.1.0"
-edition = "2024"
-authors = ["Sarah Morin <sarahmorin@berkeley.edu>"]
-license-file = "../LICENSE"
-description = "Build helpers for compiling ISLE files in build scripts"
+description = "Build helpers for compiling ISLE rulset files in build scripts for Intarsia optimizers."
+
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 cranelift-isle = { version = "0.128.1", features = [

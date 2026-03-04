@@ -1,10 +1,16 @@
 [package]
 name = "intarsia-macros"
-version = "0.1.0"
-edition = "2024"
-authors = ["Sarah Morin <sarahmorin@berkeley.edu>"]
-description = "Procedural macros for optimizer framework"
-license = "Apache-2.0"
+description = "Procedural macros for Intarsia optimizer framework"
+
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [lib]
 proc-macro = true

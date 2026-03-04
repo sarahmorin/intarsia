@@ -2,20 +2,45 @@
 members = [".", "intarsia-build", "intarsia-macros"]
 resolver = "3"
 
-[package]
-name = "intarsia"
-version = "0.1.0"
+[workspace.package]
+version = "0.1.0-alpha"
 edition = "2024"
 authors = ["Sarah Morin <sarahmorin@berkeley.edu>"]
+description = "An extensible Rust optimization framework."
 license-file = "LICENSE"
-description = "A Rust framework for building optimizers using e-graphs and ISLE"
+repository = "https://github.com/sarahmorin/intarsia"
+readme = "README.md"
+homepage = "https://github.com/sarahmorin/intarsia/wiki"
+keywords = [
+    "optimizer",
+    "e-graph",
+    "optimization framework",
+    "compiler",
+    "programmable search",
+]
+categories = ["compilers", "data-structures", "algorithms"]
+
+
+[package]
+name = "intarsia"
+
+description.workspace = true
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license-file.workspace = true
+repository.workspace = true
+readme.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = []
 build-helpers = ["dep:cranelift-isle"]
 
 [build-dependencies]
-intarsia-build = { path = "intarsia-build" }
+intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build" }
 
 [dependencies]
 bimap = "0.6.3"
@@ -24,12 +49,12 @@ cranelift-isle = { version = "0.128.1", features = [
     "log",
     "logging",
 ], optional = true }
-egg = { git = "https://github.com/sarahmorin/egg.git", branch = "intarsia" }
+egg = { version = "0.11.0", git = "https://github.com/sarahmorin/egg.git", branch = "intarsia" }
 # HACK: Use a local path dependency for egg during development to avoid git overhead and allow for easy code changes
 # egg = { path = "../egg" }
 indexmap = "2.13.0"
 log = "0.4.29"
-intarsia-macros = { path = "intarsia-macros" }
+intarsia-macros = { version = "0.1.0-alpha", path = "intarsia-macros" }
 
 [dev-dependencies]
 env_logger = "0.11"
