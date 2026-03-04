@@ -33,7 +33,7 @@
 ///
 /// ```rust,ignore
 /// use egg::{define_language, Id};
-/// use kymetica::framework::*;
+/// use intarsia::framework::*;
 ///
 /// // 1. Define language
 /// define_language! {

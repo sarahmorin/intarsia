@@ -53,12 +53,13 @@ use crate::{OptimizerFramework, PropertyAwareLanguage};
 ///
 ///
 /// # Implementation Notes
+///
 /// - The `cost()` method is used for ordering costs - lower values are better.
 /// - The `properties()` method is used to determine if the expression satisfies property requirements.
-/// - Implement `PartialOrd` for your cost domain to define how costs are compared. Typically, you would compare raw costs first, and then use properties as a tiebreaker if needed.
-/// - Implement `Default` for your cost domain to provide a default "worst" cost (e.g., maximum cost value) we should avoid extracting.
-/// - Implement `PartialEq` and `Eq` to define when two costs are considered equal, especially if you are embedding extra information for computing costs that you *don't* want to use when comparing costs.
-/// - Consider using saturating arithmetic for cost computations to avoid overflow (e.g., `saturating_add`, `saturating_mul
+/// - Implement [`PartialOrd`] for your cost domain to define how costs are compared. Typically, you would compare raw costs first, and then use properties as a tiebreaker if needed.
+/// - Implement [`Default`] for your cost domain to provide a default "worst" cost (e.g., maximum cost value) we should avoid extracting.
+/// - Implement [`PartialEq`] and [`Eq`] to define when two costs are considered equal, especially if you are embedding extra information for computing costs that you *don't* want to use when comparing costs.
+/// - Consider using saturating arithmetic for cost computations to avoid overflow (e.g., [`usize::saturating_add`], [`usize::saturating_mul`]).
 ///
 pub trait CostDomain<P: Property>:
     Clone + Debug + PartialEq + Eq + PartialOrd + Hash + Default
@@ -188,10 +189,11 @@ impl<P: Property> PartialOrd for SimpleCost<P> {
 ///
 /// # Type Parameters
 ///
-/// * `L` - The language type (must implement `Language`)
-/// * `P` - The property type
-/// * `D` - The domain type for the raw cost value (must implement `Ord`)
-/// * `C` - The cost domain type (must implement `CostDomain<P, D>`)
+/// * `L` - The language type (must implement [`Language`])
+/// * `P` - The property type (must implement [`Property`])
+/// * `C` - The cost domain type (must implement [`CostDomain`])
+///
+/// [`Language`]: https://docs.rs/egg/latest/egg/trait.Language.html
 ///
 /// # Implementation Notes
 ///
