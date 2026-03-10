@@ -39,7 +39,7 @@ exclude = ["docs"]
 
 [features]
 default = []
-build-helpers = ["dep:cranelift-isle"]
+build-helpers = ["dep:intarsia-build"]
 
 [build-dependencies]
 intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build" }
@@ -57,6 +57,7 @@ egg = { version = "0.11.0", git = "https://github.com/sarahmorin/egg.git", branc
 indexmap = "2.13.0"
 log = "0.4.29"
 intarsia-macros = { version = "0.1.0-alpha", path = "intarsia-macros" }
+intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build", optional = true }
 
 [dev-dependencies]
 env_logger = "0.11"
