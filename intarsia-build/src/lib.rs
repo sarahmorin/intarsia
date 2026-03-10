@@ -44,9 +44,11 @@ use std::path::{Path, PathBuf};
 /// your_project/
 ///   ├── build.rs          (calls this function)
 ///   ├── Cargo.toml
-///   └── isle/
-///       ├── rules.isle    (your ISLE file)
-///       └── rules.rs      (generated - git ignore this)
+///   └── src/
+///       ├── main.rs
+///       └── isle/
+///         ├── rules.isle    (your ISLE file)
+///         └── rules.rs      (generated - git ignore this)
 /// ```
 ///
 /// # Example
@@ -68,7 +70,7 @@ use std::path::{Path, PathBuf};
 ///
 /// [`cranelift_isle::error::Errors`]: https://docs.rs/cranelift-isle/latest/cranelift_isle/error/struct.Errors.html
 pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
-    compile_isle_dir("isle")
+    compile_isle_dir("src/isle")
 }
 
 /// Compile all ISLE files in a specified directory.
