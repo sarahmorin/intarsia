@@ -133,125 +133,39 @@ fn demonstrate_optimization(description: &str, expr: RecExpr<BoolLang>) {
 /// Create expression: NOT(NOT(x)) AND true
 /// Should simplify to: x
 fn create_double_negation() -> RecExpr<BoolLang> {
-    // We'll use a hack: represent 'x' as 'true' for simplicity
-    // In practice, you'd have variables in your language
-    let mut expr = RecExpr::default();
-
-    // x = true (standing in for a variable)
-    let x = expr.add(BoolLang::Var("x".to_string()));
-
-    // NOT(x)
-    let not_x = expr.add(BoolLang::Not(x));
-
-    // NOT(NOT(x))
-    let not_not_x = expr.add(BoolLang::Not(not_x));
-
-    // true
-    let true_val = expr.add(BoolLang::Bool(true));
-
-    // NOT(NOT(x)) AND true
-    expr.add(BoolLang::And([not_not_x, true_val]));
-
+    let expr_str = "(AND true (NOT (NOT x)))";
+    let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
     expr
 }
 
 /// Create expression: NOT(AND(x, y))
 /// Should transform to: OR(NOT(x), NOT(y)) via De Morgan's law
 fn create_demorgans_example() -> RecExpr<BoolLang> {
-    let mut expr = RecExpr::default();
-
-    // x = true, y = false (standing in for variables)
-    let x = expr.add(BoolLang::Var("x".to_string()));
-    let y = expr.add(BoolLang::Var("y".to_string()));
-
-    // AND(x, y)
-    let and_xy = expr.add(BoolLang::And([x, y]));
-
-    // NOT(AND(x, y))
-    expr.add(BoolLang::Not(and_xy));
-
+    let expr_str = "(NOT (AND x y))";
+    let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
     expr
 }
 
 /// Create expression: (NOT(NOT(x)) OR (x OR false)) AND true
 /// Should simplify to: x through multiple optimization steps
 fn create_complex_redundant() -> RecExpr<BoolLang> {
-    let mut expr = RecExpr::default();
-
-    // x = true
-    let x = expr.add(BoolLang::Var("x".to_string()));
-
-    // NOT(x)
-    let not_x = expr.add(BoolLang::Not(x));
-
-    // NOT(NOT(x))
-    let not_not_x = expr.add(BoolLang::Not(not_x));
-
-    // false
-    let false_val = expr.add(BoolLang::Bool(false));
-
-    // x OR false
-    let x_or_false = expr.add(BoolLang::Or([x, false_val]));
-
-    // NOT(NOT(x)) OR (x OR false)
-    let big_or = expr.add(BoolLang::Or([not_not_x, x_or_false]));
-
-    // true
-    let true_val = expr.add(BoolLang::Bool(true));
-
-    // (NOT(NOT(x)) OR (x OR false)) AND true
-    expr.add(BoolLang::And([big_or, true_val]));
-
+    let expr_str = "(AND (OR (NOT (NOT x)) (OR x false)) true)";
+    let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
     expr
 }
 
 /// Create expression: (x AND false) OR (NOT(true) AND y)
 /// Should simplify to: false through constant folding
 fn create_constant_folding() -> RecExpr<BoolLang> {
-    let mut expr = RecExpr::default();
-
-    // x = true, y = true
-    let x = expr.add(BoolLang::Var("x".to_string()));
-    let y = expr.add(BoolLang::Var("y".to_string()));
-
-    // false
-    let false_val = expr.add(BoolLang::Bool(false));
-
-    // x AND false
-    let x_and_false = expr.add(BoolLang::And([x, false_val]));
-
-    // true
-    let true_val = expr.add(BoolLang::Bool(true));
-
-    // NOT(true)
-    let not_true = expr.add(BoolLang::Not(true_val));
-
-    // NOT(true) AND y
-    let not_true_and_y = expr.add(BoolLang::And([not_true, y]));
-
-    // (x AND false) OR (NOT(true) AND y)
-    expr.add(BoolLang::Or([x_and_false, not_true_and_y]));
-
+    let expr_str = "(OR (AND x false) (AND (NOT true) y))";
+    let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
     expr
 }
 
 /// Create expression: (x OR x) AND (y OR y)
 /// Should simplify to: x AND y through idempotent laws
 fn create_idempotent_example() -> RecExpr<BoolLang> {
-    let mut expr = RecExpr::default();
-
-    // x = true, y = false
-    let x = expr.add(BoolLang::Var("x".to_string()));
-    let y = expr.add(BoolLang::Var("y".to_string()));
-
-    // x OR x
-    let x_or_x = expr.add(BoolLang::Or([x, x]));
-
-    // y OR y
-    let y_or_y = expr.add(BoolLang::Or([y, y]));
-
-    // (x OR x) AND (y OR y)
-    expr.add(BoolLang::And([x_or_x, y_or_y]));
-
+    let expr_str = "(AND (OR x x) (OR y y))";
+    let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
     expr
 }
