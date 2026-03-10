@@ -39,15 +39,8 @@ use intarsia::{CostDomain, CostFunction, SimpleCost};
         println!("\n=== Testing Example 3: (NOT(NOT(x)) OR (x OR false)) AND true ===\n");
 
         // Build the initial expression
-        let mut expr = RecExpr::default();
-        let x = expr.add(BoolLang::Var("x".to_string()));
-        let not_x = expr.add(BoolLang::Not(x));
-        let not_not_x = expr.add(BoolLang::Not(not_x));
-        let false_val = expr.add(BoolLang::Bool(false));
-        let x_or_false = expr.add(BoolLang::Or([x, false_val]));
-        let big_or = expr.add(BoolLang::Or([not_not_x, x_or_false]));
-        let true_val = expr.add(BoolLang::Bool(true));
-        expr.add(BoolLang::And([big_or, true_val]));
+        let expr_str = "(AND (OR (NOT (NOT x)) (OR x false)) true)";
+        let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
 
         let (optimizer, root_id) = optimize_expr(expr);
         let root_eclass = optimizer.egraph.find(root_id);
@@ -119,15 +112,8 @@ use intarsia::{CostDomain, CostFunction, SimpleCost};
         println!("\n=== Testing Example 4: (x AND false) OR (NOT(true) AND y) ===\n");
 
         // Build the initial expression
-        let mut expr = RecExpr::default();
-        let x = expr.add(BoolLang::Var("x".to_string()));
-        let y = expr.add(BoolLang::Var("y".to_string()));
-        let false_val = expr.add(BoolLang::Bool(false));
-        let x_and_false = expr.add(BoolLang::And([x, false_val]));
-        let true_val = expr.add(BoolLang::Bool(true));
-        let not_true = expr.add(BoolLang::Not(true_val));
-        let not_true_and_y = expr.add(BoolLang::And([not_true, y]));
-        expr.add(BoolLang::Or([x_and_false, not_true_and_y]));
+        let expr_str = "(OR (AND x false) (AND (NOT true) y))";
+        let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
 
         let (optimizer, root_id) = optimize_expr(expr);
         let root_eclass = optimizer.egraph.find(root_id);
@@ -190,8 +176,8 @@ use intarsia::{CostDomain, CostFunction, SimpleCost};
         let mut optimizer = BoolOptimizer::new(());
 
         // Test 1: Cost of a variable
-        let mut expr1 = RecExpr::default();
-        let x = expr1.add(BoolLang::Var("x".to_string()));
+        let expr1_str = "x";
+        let expr1: RecExpr<BoolLang> = expr1_str.parse().unwrap();
         let id1 = optimizer.egraph.add_expr(&expr1);
         optimizer.egraph.rebuild();
 
@@ -203,9 +189,8 @@ use intarsia::{CostDomain, CostFunction, SimpleCost};
         println!("Cost of Var(\"x\"): {:?}", x_cost);
 
         // Test 2: Cost of Or(x, x)
-        let mut expr2 = RecExpr::default();
-        let x2 = expr2.add(BoolLang::Var("x".to_string()));
-        let or_x_x = expr2.add(BoolLang::Or([x2, x2]));
+        let expr2_str = "(OR x x)";
+        let expr2: RecExpr<BoolLang> = expr2_str.parse().unwrap();
         let id2 = optimizer.egraph.add_expr(&expr2);
         optimizer.egraph.rebuild();
 
@@ -239,9 +224,8 @@ use intarsia::{CostDomain, CostFunction, SimpleCost};
         println!("\n=== Testing Idempotent Rule Application ===\n");
 
         // Create Or(x, x) and see if it gets rewritten to x
-        let mut expr = RecExpr::default();
-        let x = expr.add(BoolLang::Var("x".to_string()));
-        expr.add(BoolLang::Or([x, x]));
+        let expr_str = "(OR x x)";
+        let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
 
         let (optimizer, root_id) = optimize_expr(expr);
         let root_eclass = optimizer.egraph.find(root_id);
