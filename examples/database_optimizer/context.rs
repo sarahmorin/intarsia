@@ -135,7 +135,11 @@ impl Context for DbOptimizer {
         Some(id)
     }
 
-    fn extractor_const_val(&mut self, arg0: Id, returns: &mut Self::extractor_const_val_returns) -> () {
+    fn extractor_const_val(
+        &mut self,
+        arg0: Id,
+        returns: &mut Self::extractor_const_val_returns,
+    ) -> () {
         // Search the entire e-class for all constant value nodes
         let eclass = self.egraph.find(arg0);
         for (_node_id, node) in self.egraph.nodes_in_class(eclass) {
@@ -143,12 +147,16 @@ impl Context for DbOptimizer {
                 Optlang::Int(i) => returns.push(value::Int { val: *i }),
                 Optlang::Bool(b) => returns.push(value::Bool { val: *b }),
                 Optlang::Str(s) => returns.push(value::Str { val: s.clone() }),
-                _ => {},
+                _ => {}
             }
         }
     }
 
-    fn constructor_const_val(&mut self, arg0: &value, returns: &mut Self::constructor_const_val_returns) -> () {
+    fn constructor_const_val(
+        &mut self,
+        arg0: &value,
+        returns: &mut Self::constructor_const_val_returns,
+    ) -> () {
         let node = match arg0 {
             value::Int { val } => Optlang::Int(*val),
             value::Bool { val } => Optlang::Bool(*val),

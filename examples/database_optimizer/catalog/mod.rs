@@ -1,7 +1,6 @@
 /// Minimal Database Catalog implementation.
 ///
 /// This module stores metadata about tables, columns, and indexes in a database.
-
 pub mod column;
 pub mod index;
 pub mod table;
@@ -86,14 +85,14 @@ impl Catalog {
             Some(n) => n,
             None => self.generate_index_name(&table_name, &columns),
         };
-        
+
         let index_id = self.try_new_index_id(name.clone())?;
-        
+
         // Verify that the specified table exists
         if let Some(table_id) = self.table_ids.get(&table_name) {
             let table = self.tables.get(table_id).unwrap();
             let mut column_ids = Vec::new();
-            
+
             // Verify that each specified column exists in the table
             for col_name in columns {
                 if let Some(col_id) = table.get_column_id(&col_name) {
@@ -105,7 +104,7 @@ impl Catalog {
                     ));
                 }
             }
-            
+
             let index = Index::new(index_id, name, *table_id, column_ids);
             self.indexes.insert(index_id, index);
             Ok(index_id)
