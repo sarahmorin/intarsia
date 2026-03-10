@@ -85,4 +85,14 @@ pub trait ExplorerHooks<L: Language> {
     fn explore(&mut self, id: Id) -> Vec<Id>;
 }
 
-// TODO: Add a default hook implementation macro
+#[macro_export]
+macro_rules! default_explorer_hook {
+    () => {
+        fn explore(&mut self, id: Id) -> Vec<Id> {
+            let mut new_ids = Vec::new();
+            // Call ISLE-generated explore function
+            rules::constructor_explore(self, id, &mut new_ids);
+            new_ids
+        }
+    };
+}
