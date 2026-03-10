@@ -1,5 +1,4 @@
 /// Database index metadata.
-
 use super::super::types::{ColumnId, IndexId, TableId};
 use std::fmt::Display;
 

@@ -1,5 +1,4 @@
 /// Database column metadata.
-
 use super::super::types::{ColumnId, DataType};
 use std::fmt::Display;
 

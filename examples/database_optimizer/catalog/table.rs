@@ -1,7 +1,6 @@
-/// Database table metadata.
-
-use super::column::Column;
 use super::super::types::{ColumnId, DataType, TableId};
+/// Database table metadata.
+use super::column::Column;
 use indexmap::IndexMap;
 use std::collections::BTreeMap;
 use std::fmt::Display;
@@ -42,7 +41,7 @@ impl Table {
     ) -> Result<Self, String> {
         let mut column_ids = IndexMap::new();
         let mut column_data = BTreeMap::new();
-        
+
         for (i, (col_name, col_type)) in columns.into_iter().enumerate() {
             let col_id = i as ColumnId + 1; // Column IDs start from 1
             if column_ids.contains_key(&col_name) {
