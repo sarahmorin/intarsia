@@ -1,26 +1,21 @@
 ;; Required Id primitive for egg integration
 (type Id (primitive Id))
-(type str (primitive String))
 
 ;; Declare the terms and operations in our language
 ;; and their extractors and constructors for integration with egg.
-(decl pure multi Const (bool) Id)
+(decl Const (bool) Id)
 (extern extractor Const extractor_const)
 (extern constructor Const constructor_const)
 
-(decl pure multi Var (str) Id)
-(extern extractor Var extractor_var)
-(extern constructor Var constructor_var)
-
-(decl multi And (Id Id) Id)
+(decl And (Id Id) Id)
 (extern extractor And extractor_and)
 (extern constructor And constructor_and)
 
-(decl multi Or (Id Id) Id)
+(decl Or (Id Id) Id)
 (extern extractor Or extractor_or)
 (extern constructor Or constructor_or)
 
-(decl multi Not (Id) Id)
+(decl Not (Id) Id)
 (extern extractor Not extractor_not)
 (extern constructor Not constructor_not)
 
@@ -62,19 +57,6 @@
     x
 )
 
-;; Commutative laws:
-;; AND(x, y) => AND(y, x)
-(rule
-    (explore (And x y))
-    (And y x)
-)
-
-;; OR(x, y) => OR(y, x)
-(rule
-    (explore (Or x y))
-    (Or y x)
-)
-
 ;; Annihilation laws:
 ;; AND(x, false) => false
 (rule
@@ -99,7 +81,7 @@
 (rule
     (explore (Or x (Const false)))
     x
-)
+)   
 
 ;; Negation of constants:
 ;; NOT(true) => false

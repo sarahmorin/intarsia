@@ -14,26 +14,14 @@ use std::marker::PhantomData;
 /// must be provided with all external constructors and extractors.
 /// A mutable borrow is passed along through all lowering logic.
 pub trait Context {
-    type extractor_const_returns: Default + IntoContextIter<Context = Self, Output = bool>;
-    fn extractor_const(&mut self, arg0: Id, returns: &mut Self::extractor_const_returns) -> ();
-    type constructor_const_returns: Default + IntoContextIter<Context = Self, Output = Id>;
-    fn constructor_const(&mut self, arg0: bool, returns: &mut Self::constructor_const_returns) -> ();
-    type extractor_var_returns: Default + IntoContextIter<Context = Self, Output = String>;
-    fn extractor_var(&mut self, arg0: Id, returns: &mut Self::extractor_var_returns) -> ();
-    type constructor_var_returns: Default + IntoContextIter<Context = Self, Output = Id>;
-    fn constructor_var(&mut self, arg0: String, returns: &mut Self::constructor_var_returns) -> ();
-    type extractor_and_returns: Default + IntoContextIter<Context = Self, Output = (Id, Id)>;
-    fn extractor_and(&mut self, arg0: Id, returns: &mut Self::extractor_and_returns) -> ();
-    type constructor_and_returns: Default + IntoContextIter<Context = Self, Output = Id>;
-    fn constructor_and(&mut self, arg0: Id, arg1: Id, returns: &mut Self::constructor_and_returns) -> ();
-    type extractor_or_returns: Default + IntoContextIter<Context = Self, Output = (Id, Id)>;
-    fn extractor_or(&mut self, arg0: Id, returns: &mut Self::extractor_or_returns) -> ();
-    type constructor_or_returns: Default + IntoContextIter<Context = Self, Output = Id>;
-    fn constructor_or(&mut self, arg0: Id, arg1: Id, returns: &mut Self::constructor_or_returns) -> ();
-    type extractor_not_returns: Default + IntoContextIter<Context = Self, Output = Id>;
-    fn extractor_not(&mut self, arg0: Id, returns: &mut Self::extractor_not_returns) -> ();
-    type constructor_not_returns: Default + IntoContextIter<Context = Self, Output = Id>;
-    fn constructor_not(&mut self, arg0: Id, returns: &mut Self::constructor_not_returns) -> ();
+    fn extractor_const(&mut self, arg0: Id) -> Option<bool>;
+    fn constructor_const(&mut self, arg0: bool) -> Id;
+    fn extractor_and(&mut self, arg0: Id) -> Option<(Id, Id)>;
+    fn constructor_and(&mut self, arg0: Id, arg1: Id) -> Id;
+    fn extractor_or(&mut self, arg0: Id) -> Option<(Id, Id)>;
+    fn constructor_or(&mut self, arg0: Id, arg1: Id) -> Id;
+    fn extractor_not(&mut self, arg0: Id) -> Option<Id>;
+    fn constructor_not(&mut self, arg0: Id) -> Id;
 }
 
 pub trait ContextIter {
@@ -127,176 +115,102 @@ pub fn constructor_explore<C: Context>(
     arg0: Id,
     returns: &mut (impl Extend<Id> + Length),
 ) -> () {
-    let mut v1 = C::extractor_not_returns::default();
-    C::extractor_not(ctx, arg0, &mut v1);
-    let mut v1 = v1.into_context_iter();
-    while let Some(v2) = v1.next(ctx) {
-        let mut v47 = C::extractor_const_returns::default();
-        C::extractor_const(ctx, v2, &mut v47);
-        let mut v47 = v47.into_context_iter();
-        while let Some(v48) = v47.next(ctx) {
-            match v48 {
+    let v1 = C::extractor_not(ctx, arg0);
+    if let Some(v2) = v1 {
+        let v35 = C::extractor_const(ctx, v2);
+        if let Some(v36) = v35 {
+            match v36 {
                 false => {
-                    let v44 = true;
-                    let mut v45 = C::constructor_const_returns::default();
-                    C::constructor_const(ctx, v44, &mut v45);
-                    let mut v45 = v45.into_context_iter();
-                    while let Some(v46) = v45.next(ctx) {
-                        // Rule at examples/boolean_optimizer/isle/rules.isle line 112.
-                        returns.extend(Some(v46));
-                        if returns.len() >= MAX_ISLE_RETURNS { return; }
-                    }
+                    let v33 = true;
+                    let v34 = C::constructor_const(ctx, v33);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 94.
+                    returns.extend(Some(v34));
+                    if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 true => {
-                    let v39 = false;
-                    let mut v40 = C::constructor_const_returns::default();
-                    C::constructor_const(ctx, v39, &mut v40);
-                    let mut v40 = v40.into_context_iter();
-                    while let Some(v41) = v40.next(ctx) {
-                        // Rule at examples/boolean_optimizer/isle/rules.isle line 106.
-                        returns.extend(Some(v41));
-                        if returns.len() >= MAX_ISLE_RETURNS { return; }
-                    }
+                    let v29 = false;
+                    let v30 = C::constructor_const(ctx, v29);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 88.
+                    returns.extend(Some(v30));
+                    if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 _ => {}
             }
         }
-        let mut v3 = C::extractor_not_returns::default();
-        C::extractor_not(ctx, v2, &mut v3);
-        let mut v3 = v3.into_context_iter();
-        while let Some(v4) = v3.next(ctx) {
-            // Rule at examples/boolean_optimizer/isle/rules.isle line 34.
+        let v3 = C::extractor_not(ctx, v2);
+        if let Some(v4) = v3 {
+            // Rule at examples/boolean_optimizer/isle/rules.isle line 29.
             returns.extend(Some(v4));
             if returns.len() >= MAX_ISLE_RETURNS { return; }
         }
-        let mut v5 = C::extractor_and_returns::default();
-        C::extractor_and(ctx, v2, &mut v5);
-        let mut v5 = v5.into_context_iter();
-        while let Some(v6) = v5.next(ctx) {
-            let mut v9 = C::constructor_not_returns::default();
-            C::constructor_not(ctx, v6.0, &mut v9);
-            let mut v9 = v9.into_context_iter();
-            while let Some(v10) = v9.next(ctx) {
-                let mut v11 = C::constructor_not_returns::default();
-                C::constructor_not(ctx, v6.1, &mut v11);
-                let mut v11 = v11.into_context_iter();
-                while let Some(v12) = v11.next(ctx) {
-                    let mut v13 = C::constructor_or_returns::default();
-                    C::constructor_or(ctx, v10, v12, &mut v13);
-                    let mut v13 = v13.into_context_iter();
-                    while let Some(v14) = v13.next(ctx) {
-                        // Rule at examples/boolean_optimizer/isle/rules.isle line 41.
-                        returns.extend(Some(v14));
-                        if returns.len() >= MAX_ISLE_RETURNS { return; }
-                    }
-                }
-            }
+        let v5 = C::extractor_and(ctx, v2);
+        if let Some(v6) = v5 {
+            let v9 = C::constructor_not(ctx, v6.0);
+            let v10 = C::constructor_not(ctx, v6.1);
+            let v11 = C::constructor_or(ctx, v9, v10);
+            // Rule at examples/boolean_optimizer/isle/rules.isle line 36.
+            returns.extend(Some(v11));
+            if returns.len() >= MAX_ISLE_RETURNS { return; }
         }
-        let mut v15 = C::extractor_or_returns::default();
-        C::extractor_or(ctx, v2, &mut v15);
-        let mut v15 = v15.into_context_iter();
-        while let Some(v16) = v15.next(ctx) {
-            let mut v19 = C::constructor_not_returns::default();
-            C::constructor_not(ctx, v16.0, &mut v19);
-            let mut v19 = v19.into_context_iter();
-            while let Some(v20) = v19.next(ctx) {
-                let mut v21 = C::constructor_not_returns::default();
-                C::constructor_not(ctx, v16.1, &mut v21);
-                let mut v21 = v21.into_context_iter();
-                while let Some(v22) = v21.next(ctx) {
-                    let mut v23 = C::constructor_and_returns::default();
-                    C::constructor_and(ctx, v20, v22, &mut v23);
-                    let mut v23 = v23.into_context_iter();
-                    while let Some(v24) = v23.next(ctx) {
-                        // Rule at examples/boolean_optimizer/isle/rules.isle line 47.
-                        returns.extend(Some(v24));
-                        if returns.len() >= MAX_ISLE_RETURNS { return; }
-                    }
-                }
-            }
+        let v12 = C::extractor_or(ctx, v2);
+        if let Some(v13) = v12 {
+            let v16 = C::constructor_not(ctx, v13.0);
+            let v17 = C::constructor_not(ctx, v13.1);
+            let v18 = C::constructor_and(ctx, v16, v17);
+            // Rule at examples/boolean_optimizer/isle/rules.isle line 42.
+            returns.extend(Some(v18));
+            if returns.len() >= MAX_ISLE_RETURNS { return; }
         }
     }
-    let mut v25 = C::extractor_and_returns::default();
-    C::extractor_and(ctx, arg0, &mut v25);
-    let mut v25 = v25.into_context_iter();
-    while let Some(v26) = v25.next(ctx) {
-        let mut v37 = C::extractor_const_returns::default();
-        C::extractor_const(ctx, v26.1, &mut v37);
-        let mut v37 = v37.into_context_iter();
-        while let Some(v38) = v37.next(ctx) {
-            match v38 {
+    let v19 = C::extractor_and(ctx, arg0);
+    if let Some(v20) = v19 {
+        let v27 = C::extractor_const(ctx, v20.1);
+        if let Some(v28) = v27 {
+            match v28 {
                 false => {
-                    let v39 = false;
-                    let mut v40 = C::constructor_const_returns::default();
-                    C::constructor_const(ctx, v39, &mut v40);
-                    let mut v40 = v40.into_context_iter();
-                    while let Some(v41) = v40.next(ctx) {
-                        // Rule at examples/boolean_optimizer/isle/rules.isle line 80.
-                        returns.extend(Some(v41));
-                        if returns.len() >= MAX_ISLE_RETURNS { return; }
-                    }
+                    let v29 = false;
+                    let v30 = C::constructor_const(ctx, v29);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 62.
+                    returns.extend(Some(v30));
+                    if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 true => {
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 93.
-                    returns.extend(Some(v26.0));
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 75.
+                    returns.extend(Some(v20.0));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 _ => {}
             }
         }
-        if v26.0 == v26.1 {
-            // Rule at examples/boolean_optimizer/isle/rules.isle line 54.
-            returns.extend(Some(v26.0));
-            if returns.len() >= MAX_ISLE_RETURNS { return; }
-        }
-        let mut v33 = C::constructor_and_returns::default();
-        C::constructor_and(ctx, v26.1, v26.0, &mut v33);
-        let mut v33 = v33.into_context_iter();
-        while let Some(v34) = v33.next(ctx) {
-            // Rule at examples/boolean_optimizer/isle/rules.isle line 67.
-            returns.extend(Some(v34));
+        if v20.0 == v20.1 {
+            // Rule at examples/boolean_optimizer/isle/rules.isle line 49.
+            returns.extend(Some(v20.0));
             if returns.len() >= MAX_ISLE_RETURNS { return; }
         }
     }
-    let mut v29 = C::extractor_or_returns::default();
-    C::extractor_or(ctx, arg0, &mut v29);
-    let mut v29 = v29.into_context_iter();
-    while let Some(v30) = v29.next(ctx) {
-        let mut v42 = C::extractor_const_returns::default();
-        C::extractor_const(ctx, v30.1, &mut v42);
-        let mut v42 = v42.into_context_iter();
-        while let Some(v43) = v42.next(ctx) {
-            match v43 {
+    let v23 = C::extractor_or(ctx, arg0);
+    if let Some(v24) = v23 {
+        let v31 = C::extractor_const(ctx, v24.1);
+        if let Some(v32) = v31 {
+            match v32 {
                 false => {
-                    // Rule at examples/boolean_optimizer/isle/rules.isle line 99.
-                    returns.extend(Some(v30.0));
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 81.
+                    returns.extend(Some(v24.0));
                     if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 true => {
-                    let v44 = true;
-                    let mut v45 = C::constructor_const_returns::default();
-                    C::constructor_const(ctx, v44, &mut v45);
-                    let mut v45 = v45.into_context_iter();
-                    while let Some(v46) = v45.next(ctx) {
-                        // Rule at examples/boolean_optimizer/isle/rules.isle line 86.
-                        returns.extend(Some(v46));
-                        if returns.len() >= MAX_ISLE_RETURNS { return; }
-                    }
+                    let v33 = true;
+                    let v34 = C::constructor_const(ctx, v33);
+                    // Rule at examples/boolean_optimizer/isle/rules.isle line 68.
+                    returns.extend(Some(v34));
+                    if returns.len() >= MAX_ISLE_RETURNS { return; }
                 }
                 _ => {}
             }
         }
-        if v30.0 == v30.1 {
-            // Rule at examples/boolean_optimizer/isle/rules.isle line 60.
-            returns.extend(Some(v30.0));
-            if returns.len() >= MAX_ISLE_RETURNS { return; }
-        }
-        let mut v35 = C::constructor_or_returns::default();
-        C::constructor_or(ctx, v30.1, v30.0, &mut v35);
-        let mut v35 = v35.into_context_iter();
-        while let Some(v36) = v35.next(ctx) {
-            // Rule at examples/boolean_optimizer/isle/rules.isle line 73.
-            returns.extend(Some(v36));
+        if v24.0 == v24.1 {
+            // Rule at examples/boolean_optimizer/isle/rules.isle line 55.
+            returns.extend(Some(v24.0));
             if returns.len() >= MAX_ISLE_RETURNS { return; }
         }
     }

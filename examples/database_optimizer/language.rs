@@ -61,14 +61,7 @@ define_language! {
 /// This defines what properties each operator requires from its children.
 impl PropertyAwareLanguage<SimpleProperty> for Optlang {
     fn property_req(&self, child_index: usize) -> SimpleProperty {
-/// Implement property requirements for the query language.
-///
-/// This defines what properties each operator requires from its children.
-impl PropertyAwareLanguage<SimpleProperty> for Optlang {
-    fn property_req(&self, child_index: usize) -> SimpleProperty {
         match self {
-            // MergeJoin requires both inputs to be sorted (children 0 and 1)
-            // The predicate (child 2) has no specific requirements
             // MergeJoin requires both inputs to be sorted (children 0 and 1)
             // The predicate (child 2) has no specific requirements
             Optlang::MergeJoin(_) => {

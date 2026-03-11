@@ -1,4 +1,3 @@
-<<<<<<<< HEAD:examples/database_optimizer/main.rs
 // Database optimizer example demonstrating the generic framework
 
 // Include all the database optimizer modules as a single unit
@@ -266,6 +265,3 @@ fn main() {
 
     println!("✓ Demo complete!");
 }
-========
-fn main() {}
->>>>>>>> d44f82f (generalized framework):src/main.rs

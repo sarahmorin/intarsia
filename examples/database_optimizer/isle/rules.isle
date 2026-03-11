@@ -19,7 +19,7 @@
 ))
 
 ;; Constant Value Terms
-(decl pure multi const_val (value) Id)
+(decl pure const_val (value) Id)
 (extern constructor const_val constructor_const_val)
 (extern extractor const_val extractor_const_val)
 
@@ -54,22 +54,22 @@
 ;; ----------------------------------------------
 
 ;; Addition
-(decl multi add (Id Id) Id)
+(decl add (Id Id) Id)
 (extern constructor add constructor_add)
 (extern extractor add extractor_add)
 
 ;; Subtraction
-(decl multi sub (Id Id) Id)
+(decl sub (Id Id) Id)
 (extern constructor sub constructor_sub)
 (extern extractor sub extractor_sub)
 
 ;; Multiplication
-(decl multi mul (Id Id) Id)
+(decl mul (Id Id) Id)
 (extern constructor mul constructor_mul)
 (extern extractor mul extractor_mul)
 
 ;; Division
-(decl multi div (Id Id) Id)
+(decl div (Id Id) Id)
 (extern constructor div constructor_div)
 (extern extractor div extractor_div)
 
@@ -78,32 +78,32 @@
 ;; ----------------------------------------------
 
 ;; Equality
-(decl multi eq (Id Id) Id)
+(decl eq (Id Id) Id)
 (extern constructor eq constructor_eq)
 (extern extractor eq extractor_eq)
 
 ;; Less Than
-(decl multi lt (Id Id) Id)
+(decl lt (Id Id) Id)
 (extern constructor lt constructor_lt)
 (extern extractor lt extractor_lt)
 
 ;; Greater Than
-(decl multi gt (Id Id) Id)
+(decl gt (Id Id) Id)
 (extern constructor gt constructor_gt)
 (extern extractor gt extractor_gt)
 
 ;; Less Than or Equal
-(decl multi le (Id Id) Id)
+(decl le (Id Id) Id)
 (extern constructor le constructor_le)
 (extern extractor le extractor_le)
 
 ;; Greater Than or Equal
-(decl multi ge (Id Id) Id)
+(decl ge (Id Id) Id)
 (extern constructor ge constructor_ge)
 (extern extractor ge extractor_ge)
 
 ;; Inequality
-(decl multi ne (Id Id) Id)
+(decl ne (Id Id) Id)
 (extern constructor ne constructor_ne)
 (extern extractor ne extractor_ne)
 
@@ -112,17 +112,17 @@
 ;; ----------------------------------------------
 
 ;; AND
-(decl multi and (Id Id) Id)
+(decl and (Id Id) Id)
 (extern constructor and constructor_and)
 (extern extractor and extractor_and)
 
 ;; OR
-(decl multi or (Id Id) Id)
+(decl or (Id Id) Id)
 (extern constructor or constructor_or)
 (extern extractor or extractor_or)
 
 ;; NOT
-(decl multi not (Id) Id)
+(decl not (Id) Id)
 (extern constructor not constructor_not)
 (extern extractor not extractor_not)
 
@@ -131,22 +131,22 @@
 ;; ----------------------------------------------
 
 ;; Selection (Filter)
-(decl multi select (Id Id) Id)
+(decl select (Id Id) Id)
 (extern constructor select constructor_select)
 (extern extractor select extractor_select)
 
 ;; Projection
-(decl multi project (Id Id) Id)
+(decl project (Id Id) Id)
 (extern constructor project constructor_project)
 (extern extractor project extractor_project)
 
 ;; Join
-(decl multi join (Id Id Id) Id)
+(decl join (Id Id Id) Id)
 (extern constructor join constructor_join)
 (extern extractor join extractor_join)
 
 ;; Scan
-(decl multi scan (Id) Id)
+(decl scan (Id) Id)
 (extern constructor scan constructor_scan)
 (extern extractor scan extractor_scan)
 
@@ -155,32 +155,32 @@
 ;; ----------------------------------------------
 
 ;; Table Scan
-(decl multi table_scan (Id) Id)
+(decl table_scan (Id) Id)
 (extern constructor table_scan constructor_table_scan)
 (extern extractor table_scan extractor_table_scan)
 
 ;; Index Scan
-(decl multi index_scan (Id) Id)
+(decl index_scan (Id) Id)
 (extern constructor index_scan constructor_index_scan)
 (extern extractor index_scan extractor_index_scan)
 
 ;; Nested Loop Join
-(decl multi nested_loop_join (Id Id Id) Id)
+(decl nested_loop_join (Id Id Id) Id)
 (extern constructor nested_loop_join constructor_nested_loop_join)
 (extern extractor nested_loop_join extractor_nested_loop_join)
 
 ;; Hash Join
-(decl multi hash_join (Id Id Id) Id)
+(decl hash_join (Id Id Id) Id)
 (extern constructor hash_join constructor_hash_join)
 (extern extractor hash_join extractor_hash_join)
 
 ;; Merge Join
-(decl multi merge_join (Id Id Id) Id)
+(decl merge_join (Id Id Id) Id)
 (extern constructor merge_join constructor_merge_join)
 (extern extractor merge_join extractor_merge_join)
 
 ;; Sort
-(decl multi sort (Id Id) Id)
+(decl sort (Id Id) Id)
 (extern constructor sort constructor_sort)
 (extern extractor sort extractor_sort)
 
