@@ -3,7 +3,7 @@ members = [".", "intarsia-build", "intarsia-macros"]
 resolver = "3"
 
 [workspace.package]
-version = "0.1.0-alpha"
+version = "0.0.0"
 edition = "2024"
 authors = ["Sarah Morin <sarahmorin@berkeley.edu>"]
 description = "An extensible Rust optimization framework."
@@ -42,7 +42,7 @@ default = []
 build-helpers = ["dep:intarsia-build"]
 
 [build-dependencies]
-intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build" }
+intarsia-build = { version = "0.0.0", path = "intarsia-build" }
 
 [dependencies]
 bimap = "0.6.3"
@@ -56,16 +56,8 @@ egg = { version = "0.11.0", git = "https://github.com/sarahmorin/egg.git", branc
 # egg = { path = "../egg" }
 indexmap = "2.13.0"
 log = "0.4.29"
-intarsia-macros = { version = "0.1.0-alpha", path = "intarsia-macros" }
-intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build", optional = true }
+intarsia-macros = { version = "0.0.0", path = "intarsia-macros" }
+intarsia-build = { version = "0.0.0", path = "intarsia-build", optional = true }
 
 [dev-dependencies]
 env_logger = "0.11"
-
-[[example]]
-name = "database_optimizer"
-path = "examples/database_optimizer/main.rs"
-
-[[example]]
-name = "boolean_optimizer"
-path = "examples/boolean_optimizer/main.rs"

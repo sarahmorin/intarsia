@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
-## [0.1.0-alpha] - 2026-03-04
-
 ### Added
 
 - Initial alpha release of intarsia-build
@@ -21,5 +19,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build script helpers for compiling ISLE DSL to Rust using cranelift-isle
 
 <!-- next-url -->
-[Unreleased]: https://github.com/sarahmorin/intarsia/compare/v0.1.0-alpha...HEAD
-[0.1.0-alpha]: https://github.com/sarahmorin/intarsia/releases/tag/v0.1.0-alpha

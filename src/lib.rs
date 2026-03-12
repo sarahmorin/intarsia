@@ -151,11 +151,3 @@
 //! - [Examples](https://github.com/sarahmorin/intarsia/tree/main/examples) - Database and boolean optimizers
 //! - [Documentation](https://github.com/sarahmorin/intarsia/wiki) - Detailed guides and API reference
 
-// Generic optimizer framework
-pub mod framework;
-
-// Re-export commonly used items from framework
-pub use framework::{
-    CostDomain, CostFunction, ExplorerHooks, OptimizerFramework, Property, PropertyAwareLanguage,
-    SimpleCost, SimpleOptimizerFramework, Task,
-};
