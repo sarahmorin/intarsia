@@ -19,3 +19,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Build script helpers for compiling ISLE DSL to Rust using cranelift-isle
 
 <!-- next-url -->
+[Unreleased]: https://github.com/sarahmorin/intarsia/compare/...HEAD

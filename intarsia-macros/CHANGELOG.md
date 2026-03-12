@@ -16,3 +16,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Procedural macros for seamless ISLE DSL integration with Intarsia optimizer framework
 
 <!-- next-url -->
+[Unreleased]: https://github.com/sarahmorin/intarsia/compare/...HEAD
