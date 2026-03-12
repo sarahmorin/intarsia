@@ -117,7 +117,7 @@
 //!
 //! [`intarsia-build`]: https://docs.rs/intarsia-build/
 //!
-//! ```no_run
+//! ```rust,ignore
 //! // build.rs
 //! fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     intarsia_build::compile_isle_auto()?;
