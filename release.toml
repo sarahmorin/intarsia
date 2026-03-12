@@ -1,0 +1,30 @@
+# cargo-release workspace configuration
+# https://github.com/crate-ci/cargo-release/blob/master/docs/reference.md
+
+# Only allow releases from release/* branches (e.g. release/v0.1.0)
+allow-branch = ["release/*"]
+
+# All crates in this workspace share a single version
+shared-version = true
+
+# Produce one release commit for the whole workspace
+consolidate-commits = true
+
+# Automatically upgrade in-workspace version specifiers when a crate is bumped
+dependent-version = "upgrade"
+
+# Automate Keep a Changelog maintenance on release.
+# Order is important: steps 1-3 convert the existing [Unreleased] section to a
+# versioned entry before steps 4-5 insert a fresh [Unreleased] placeholder.
+pre-release-replacements = [
+  # 1. Replace [Unreleased] with the new version (affects header + link anchor)
+  {file="CHANGELOG.md", search="Unreleased", replace="{{version}}"},
+  # 2. Repoint the compare URL from ...HEAD to ...{{tag_name}}
+  {file="CHANGELOG.md", search="\\.\\.\\.HEAD", replace="...{{tag_name}}", exactly=1},
+  # 3. Fill in the release date
+  {file="CHANGELOG.md", search="ReleaseDate", replace="{{date}}"},
+  # 4. Insert a fresh [Unreleased] section after the header marker
+  {file="CHANGELOG.md", search="<!-- next-header -->", replace="<!-- next-header -->\n\n## [Unreleased] - ReleaseDate", exactly=1},
+  # 5. Insert a fresh [Unreleased] link after the URL marker
+  {file="CHANGELOG.md", search="<!-- next-url -->", replace="<!-- next-url -->\n[Unreleased]: {{repository}}/compare/{{tag_name}}...HEAD", exactly=1},
+]
