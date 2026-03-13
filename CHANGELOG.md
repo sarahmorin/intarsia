@@ -9,10 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+## [0.1.0] - 2026-03-13
+
 ### Added
 
 - ISLE integration support via intarsia-macros
 - `build-helpers` feature flag for re-exporting build utilities
 
 <!-- next-url -->
-[Unreleased]: https://github.com/sarahmorin/intarsia/compare/...HEAD
+[Unreleased]: https://github.com/sarahmorin/intarsia/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/sarahmorin/intarsia/compare/...v0.1.0

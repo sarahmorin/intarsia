@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - ReleaseDate
 
+## [0.1.0] - 2026-03-13
+
 ### Added
 
 - `isle_integration!` - Generate type definitions required by ISLE-generated code
@@ -16,4 +18,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Procedural macros for seamless ISLE DSL integration with Intarsia optimizer framework
 
 <!-- next-url -->
-[Unreleased]: https://github.com/sarahmorin/intarsia/compare/...HEAD
+[Unreleased]: https://github.com/sarahmorin/intarsia/compare/intarsia-macros-v0.1.0...HEAD
+[0.1.0]: https://github.com/sarahmorin/intarsia/compare/...intarsia-macros-v0.1.0
