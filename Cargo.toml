@@ -14,9 +14,8 @@ homepage = "https://github.com/sarahmorin/intarsia/wiki"
 keywords = [
     "optimizer",
     "e-graph",
-    "optimization framework",
     "compiler",
-    "programmable search",
+    "framework"
 ]
 categories = ["compilers", "data-structures", "algorithms"]
 
