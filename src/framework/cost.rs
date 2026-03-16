@@ -105,7 +105,7 @@ pub trait CostDomain<P: Property>:
 ///     properties: SimpleProperty::Sorted,
 /// }
 /// ```
-#[derive(Debug, Clone, Eq, Hash)]
+#[derive(Debug, Clone, Eq)]
 pub struct SimpleCost<P: Property> {
     /// The numeric cost of this expression.
     ///
@@ -166,6 +166,13 @@ impl<P: Property> Default for SimpleCost<P> {
 impl<P: Property> PartialEq for SimpleCost<P> {
     fn eq(&self, other: &Self) -> bool {
         self.raw_cost == other.raw_cost && self.props == other.props
+    }
+}
+
+impl<P: Property> Hash for SimpleCost<P> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.raw_cost.hash(state);
+        self.props.hash(state);
     }
 }
 

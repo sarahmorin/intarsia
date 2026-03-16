@@ -21,9 +21,7 @@
 //!
 //! In your `build.rs`:
 //! ```no_run
-//! fn main() {
 //!     intarsia_build::compile_isle_auto().unwrap();
-//! }
 //! ```
 
 use std::error::Error;

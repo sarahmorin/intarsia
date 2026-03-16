@@ -429,11 +429,11 @@ where
 
         for (node_id, node) in self.egraph.nodes_in_class(id) {
             // Compute cost with required properties
-            if let Some(cost) = self.compute_expr_cost_with_props(node, props.clone()) {
-                if cost < best_cost {
-                    best_cost = cost;
-                    best_expr = Some(node_id);
-                }
+            if let Some(cost) = self.compute_expr_cost_with_props(node, props.clone())
+                && cost < best_cost
+            {
+                best_cost = cost;
+                best_expr = Some(node_id);
             }
         }
 
@@ -492,8 +492,6 @@ where
                 self.task_stack
                     .push(Task::OptimizeGroup(canonical_child, props, false, false));
             }
-
-            return;
         }
 
         // Children are optimized - the cost computation happens in run_optimize_group
@@ -560,16 +558,15 @@ where
 
         // If we did not discover any new equivalences AND my own explore group is the next task on the stack,
         // then we can skip re-exploring myself since we know we won't find anything new.
-        if !changed {
-            if let Some(Task::ExploreGroup(next_id, _)) = self.task_stack.last() {
-                if *next_id == id {
-                    debug!(
-                        "Skipping redundant explore of group {:?} since no new equivalences were found.",
-                        id
-                    );
-                    self.task_stack.pop();
-                }
-            }
+        if !changed
+            && let Some(Task::ExploreGroup(next_id, _)) = self.task_stack.last()
+            && *next_id == id
+        {
+            debug!(
+                "Skipping redundant explore of group {:?} since no new equivalences were found.",
+                id
+            );
+            self.task_stack.pop();
         }
     }
 
