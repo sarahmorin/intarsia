@@ -1020,7 +1020,7 @@ pub fn isle_integration_full(input: TokenStream) -> TokenStream {
     let path = args.path;
     let name = path
         .split('/')
-        .last()
+        .next_back()
         .and_then(|s| s.strip_suffix(".rs"))
         .unwrap_or("rules");
     let mod_name = Ident::new(name, proc_macro2::Span::call_site());

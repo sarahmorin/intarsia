@@ -21,7 +21,7 @@
 //!
 //! In your `build.rs`:
 //! ```no_run
-//!     intarsia_build::compile_isle_auto().unwrap();
+//! intarsia_build::compile_isle_auto().unwrap();
 //! ```
 
 use std::error::Error;
@@ -53,9 +53,7 @@ use std::path::{Path, PathBuf};
 ///
 /// ```no_run
 /// // build.rs
-/// fn main() {
-///     intarsia::build::compile_isle_auto().unwrap();
-/// }
+/// intarsia::build::compile_isle_auto().unwrap();
 /// ```
 ///
 /// # Errors
@@ -92,10 +90,8 @@ pub fn compile_isle_auto() -> Result<(), Box<dyn Error>> {
 ///
 /// ```no_run
 /// // build.rs
-/// fn main() {
-///     // Compile ISLE files in examples/optimizer/isle/
-///     intarsia_build::compile_isle_dir("examples/optimizer/isle").unwrap();
-/// }
+/// // Compile ISLE files in examples/optimizer/isle/
+/// intarsia_build::compile_isle_dir("examples/optimizer/isle").unwrap();
 /// ```
 ///
 /// # Errors
@@ -164,10 +160,8 @@ pub fn compile_isle_dir(isle_dir: impl AsRef<Path>) -> Result<(), Box<dyn Error>
 ///
 /// ```no_run
 /// // build.rs
-/// fn main() {
-///     intarsia_build::compile_isle_file("isle/rules.isle").unwrap();
-///     intarsia_build::compile_isle_file("isle/custom.isle").unwrap();
-/// }
+/// intarsia_build::compile_isle_file("isle/rules.isle").unwrap();
+/// intarsia_build::compile_isle_file("isle/custom.isle").unwrap();
 /// ```
 ///
 /// # Errors
@@ -219,12 +213,10 @@ pub fn compile_isle_file(isle_file: impl AsRef<Path>) -> Result<(), Box<dyn Erro
 ///
 /// ```no_run
 /// // build.rs
-/// fn main() {
 ///     intarsia_build::compile_isle_files(&[
 ///         "isle/rules.isle",
 ///         "isle/cost.isle",
 ///     ]).unwrap();
-/// }
 /// ```
 pub fn compile_isle_files(isle_files: &[impl AsRef<Path>]) -> Result<(), Box<dyn Error>> {
     for isle_file in isle_files {
