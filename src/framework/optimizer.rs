@@ -3,16 +3,32 @@
 /// This module provides a generic cascades-style optimizer framework that can work
 /// with any language and property system.
 use egg::{EGraph, Extractor, Id, Language, RecExpr};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
 
 use crate::framework::{
+    config::Config,
     cost::{CostDomain, CostFunction, SimpleCost},
     hooks::ExplorerHooks,
     language_ext::PropertyAwareLanguage,
     property::Property,
     task::Task,
 };
+
+/// StopReason indicates why the optimizer stopped before finding an optimal plan.
+#[derive(Debug, Clone)]
+pub enum StopReason {
+    /// The optimizer stopped because it reached the configured time limit.
+    TimeLimitReached,
+    /// The optimizer stopped because it reached the configured node limit.
+    NodeLimitReached,
+    /// The optimizer stopped because it reached the configured task limit.
+    TaskLimitReached,
+    /// The optimizer stopped because it exhausted the search space (no more tasks to explore).
+    SearchSpaceExhausted,
+    /// The optimizer stopped for an unknown reason (should not happen).
+    Unknown(String),
+}
 
 /// The main optimizer framework implementing cascades-style optimization.
 ///
@@ -71,6 +87,11 @@ where
     /// [`egg::EGraph`]: https://docs.rs/egg/latest/egg/struct.EGraph.html
     pub egraph: EGraph<L, ()>,
 
+    /// Configuration for the optimizer.
+    ///
+    /// This can include settings like time limits, node limits, etc. that control the optimization process.
+    pub config: Config,
+
     /// User-defined data accessible during optimization.
     ///
     /// This field allows you to store domain-specific data that your cost function
@@ -114,6 +135,7 @@ where
     pub fn new(user_data: UserData) -> Self {
         Self {
             egraph: EGraph::default(),
+            config: Config::new(),
             user_data,
             task_stack: Vec::new(),
             explored_groups: HashSet::new(),
@@ -121,6 +143,24 @@ where
             optimized_memo: HashMap::new(),
             costs: HashMap::new(),
         }
+    }
+
+    /// Set time_limit in the optimizer configuration.
+    pub fn with_time_limit(mut self, limit: std::time::Duration) -> Self {
+        self.config = self.config.with_time_limit(limit);
+        self
+    }
+
+    /// Set node_limit in the optimizer configuration.
+    pub fn with_node_limit(mut self, limit: usize) -> Self {
+        self.config = self.config.with_node_limit(limit);
+        self
+    }
+
+    /// Set task_limit in the optimizer configuration.
+    pub fn with_task_limit(mut self, limit: usize) -> Self {
+        self.config = self.config.with_task_limit(limit);
+        self
     }
 
     /// Initialize the optimizer with an initial expression.
@@ -164,23 +204,63 @@ where
     /// 3. Continue until task stack is empty
     ///
     /// After `run()` completes, use [`extract()`](Self::extract) to get the best expression.
-    pub fn run(&mut self, id: Id)
+    pub fn run(&mut self, id: Id) -> StopReason
     where
         Self: ExplorerHooks<L> + CostFunction<L, P, C>,
     {
+        let start_time = std::time::Instant::now();
+        let mut tasks_processed: usize = 0;
         // Push the initial optimization task with no property requirements
         self.task_stack
             .push(Task::OptimizeGroup(id, P::bottom(), false, false));
 
         // Process all tasks in the stack
         while let Some(task) = self.task_stack.pop() {
+            // Process the task based on its type
             match task {
                 Task::OptimizeGroup(_, _, _, _) => self.run_optimize_group(task),
                 Task::OptimizeExpr(_, _) => self.run_optimize_expr(task),
                 Task::ExploreGroup(_, _) => self.run_explore_group(task),
                 Task::ExploreChildren(_) => self.run_explore_children(task),
             }
+            tasks_processed += 1;
+
+            // Check stopping conditions after each task
+            if self.config.task_limit.is_some() {
+                if tasks_processed >= self.config.task_limit.unwrap() {
+                    info!("Task limit reached, stopping optimization early.");
+                    return StopReason::TaskLimitReached;
+                }
+            }
+
+            if self.config.node_limit.is_some() {
+                let node_count = self.egraph.total_size();
+                if node_count >= self.config.node_limit.unwrap() {
+                    info!(
+                        "Node limit reached ({} nodes), stopping optimization early.",
+                        node_count
+                    );
+                    return StopReason::NodeLimitReached;
+                }
+            }
+
+            if self.config.time_limit.is_some() {
+                let elapsed = std::time::Instant::now() - start_time; // Placeholder for actual start time tracking
+                if elapsed >= self.config.time_limit.unwrap() {
+                    info!(
+                        "Time limit reached (elapsed {:?}), stopping optimization early.",
+                        elapsed
+                    );
+                    return StopReason::TimeLimitReached;
+                }
+            }
         }
+
+        info!(
+            "Search space exhausted after {:?}, no more tasks to explore.",
+            std::time::Instant::now() - start_time
+        );
+        return StopReason::SearchSpaceExhausted;
     }
 
     /// Push a task onto the task stack for processing.

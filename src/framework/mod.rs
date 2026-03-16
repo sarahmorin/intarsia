@@ -1,3 +1,4 @@
+pub mod config;
 /// Generic optimizer framework module.
 ///
 /// This module provides a generic cascades-style optimizer framework that can work
