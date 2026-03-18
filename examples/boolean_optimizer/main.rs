@@ -102,9 +102,9 @@ fn demonstrate_optimization(description: &str, expr: RecExpr<BoolLang>) {
     println!("\nRunning optimization...");
 
     // Run the optimizer
-    optimizer.run(root_id);
+    let stop_reason = optimizer.run(root_id);
 
-    println!("Optimization complete!\n");
+    println!("Optimization complete! Stop reason: {:?}\n", stop_reason);
 
     // Extract the optimized expression
     let optimized = optimizer.extract(root_id);

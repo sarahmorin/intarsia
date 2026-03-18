@@ -235,9 +235,10 @@ fn main() {
     println!("Step 4: Running optimizer...");
     println!("  [Exploring equivalent expressions and finding optimal plan]");
 
-    optimizer.run(root_id);
+    let stop_reason = optimizer.run(root_id);
 
     println!("  ✓ Optimization complete");
+    println!("  ✓ Stop reason: {:?}", stop_reason);
     println!(
         "  ✓ E-graph now contains {} nodes (explored alternatives)\n",
         optimizer.egraph.total_number_of_nodes()
