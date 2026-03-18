@@ -69,3 +69,14 @@ pub enum Task<P: Property> {
     /// Generates ExploreGroup tasks for each unexplored child group.
     ExploreChildren(Id),
 }
+
+impl<P: Property> Task<P> {
+    pub fn to_type_name(&self) -> &'static str {
+        match self {
+            Task::OptimizeGroup(_, _, _, _) => "OptimizeGroup",
+            Task::OptimizeExpr(_, _) => "OptimizeExpr",
+            Task::ExploreGroup(_, _) => "ExploreGroup",
+            Task::ExploreChildren(_) => "ExploreChildren",
+        }
+    }
+}

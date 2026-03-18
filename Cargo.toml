@@ -38,8 +38,9 @@ categories.workspace = true
 exclude = ["docs"]
 
 [features]
-default = []
+default = ["rerun-metrics"]
 build-helpers = ["dep:intarsia-build"]
+rerun-metrics = ["dep:rerun", "dep:uuid"]
 
 [build-dependencies]
 intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build" }
@@ -51,13 +52,19 @@ cranelift-isle = { version = "0.128.1", features = [
     "log",
     "logging",
 ], optional = true }
-egg = { version = "0.11.0", git = "https://github.com/sarahmorin/egg.git", branch = "intarsia" }
+# egg = { version = "0.11.0", git = "https://github.com/sarahmorin/egg.git", branch = "intarsia" }
 # HACK: Use a local path dependency for egg during development to avoid git overhead and allow for easy code changes
-# egg = { path = "../egg" }
+egg = { path = "../egg" }
 indexmap = "2.13.0"
 log = "0.4.29"
 intarsia-macros = { version = "0.1.0-alpha", path = "intarsia-macros" }
 intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build", optional = true }
+metrics = "0.24.3"
+rerun = { version = "0.29.1", default-features = false, features = [
+    "sdk",
+], optional = true }
+uuid = { version = "1.18.1", features = ["v4"], optional = true }
+const_format = "0.2.35"
 
 [dev-dependencies]
 env_logger = "0.11"
@@ -69,3 +76,7 @@ path = "examples/database_optimizer/main.rs"
 [[example]]
 name = "boolean_optimizer"
 path = "examples/boolean_optimizer/main.rs"
+
+[[example]]
+name = "rerun_simple"
+path = "examples/rerun_simple.rs"

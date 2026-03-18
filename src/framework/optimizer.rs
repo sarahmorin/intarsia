@@ -1,3 +1,5 @@
+#[cfg(feature = "rerun-metrics")]
+use crate::metrics;
 /// The core OptimizerFramework struct and its implementation.
 ///
 /// This module provides a generic cascades-style optimizer framework that can work
@@ -5,6 +7,7 @@
 use egg::{EGraph, Extractor, Id, Language, RecExpr};
 use log::{debug, info, warn};
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use crate::framework::{
     config::Config,
@@ -119,6 +122,9 @@ where
     /// Stores the cost of the best expression for each (group_id, required_properties) pair.
     // TODO: Make accessors instead of public field
     pub costs: HashMap<(Id, P), C>,
+
+    #[cfg(feature = "rerun-metrics")]
+    rerun_metrics: metrics::RerunStream,
 }
 
 impl<L, P, C, UserData> OptimizerFramework<L, P, C, UserData>
@@ -142,6 +148,8 @@ where
             optimized_groups: HashSet::new(),
             optimized_memo: HashMap::new(),
             costs: HashMap::new(),
+            #[cfg(feature = "rerun-metrics")]
+            rerun_metrics: None,
         }
     }
 
@@ -160,6 +168,13 @@ where
     /// Set task_limit in the optimizer configuration.
     pub fn with_task_limit(mut self, limit: usize) -> Self {
         self.config = self.config.with_task_limit(limit);
+        self
+    }
+
+    /// Enable scalar metrics logging with a caller-provided rerun recording stream.
+    #[cfg(feature = "rerun-metrics")]
+    pub fn with_rerun_metrics(mut self, rec: metrics::RerunStream) -> Self {
+        self.rerun_metrics = rec;
         self
     }
 
@@ -210,57 +225,99 @@ where
     {
         let start_time = std::time::Instant::now();
         let mut tasks_processed: usize = 0;
+
         // Push the initial optimization task with no property requirements
         self.task_stack
             .push(Task::OptimizeGroup(id, P::bottom(), false, false));
 
+        let mut stop_reason = StopReason::Unknown(String::from("init"));
+
+        #[cfg(feature = "rerun-metrics")]
+        let mut summary_metrics = metrics::SummaryMetrics::new();
+
         // Process all tasks in the stack
         while let Some(task) = self.task_stack.pop() {
+            #[cfg(feature = "rerun-metrics")]
+            let task_start = Instant::now();
+
+            #[cfg(feature = "rerun-metrics")]
+            let task_type = task.to_type_name();
+
             // Process the task based on its type
-            match task {
-                Task::OptimizeGroup(_, _, _, _) => self.run_optimize_group(task),
-                Task::OptimizeExpr(_, _) => self.run_optimize_expr(task),
+            let _rebuild_time_s = match task {
+                Task::OptimizeGroup(_, _, _, _) => {
+                    self.run_optimize_group(task);
+                    0.0
+                }
+                Task::OptimizeExpr(_, _) => {
+                    self.run_optimize_expr(task);
+                    0.0
+                }
                 Task::ExploreGroup(_, _) => self.run_explore_group(task),
-                Task::ExploreChildren(_) => self.run_explore_children(task),
-            }
+                Task::ExploreChildren(_) => {
+                    self.run_explore_children(task);
+                    0.0
+                }
+            };
             tasks_processed += 1;
 
+            #[cfg(feature = "rerun-metrics")]
+            {
+                let task_metrics = metrics::TaskMetrics {
+                    egraph_nodes: self.egraph.total_size(),
+                    egraph_classes: self.egraph.number_of_classes(),
+                    task_type,
+                    task_time_s: task_start.elapsed().as_secs_f64(),
+                    rebuild_count: usize::from(matches!(task_type, "ExploreGroup")),
+                    rebuild_time_s: _rebuild_time_s,
+                    optimized_memo_pairs: self.optimized_memo.len(),
+                };
+                metrics::log_rerun_task(&self.rerun_metrics, &task_metrics, &mut summary_metrics);
+            };
+
             // Check stopping conditions after each task
-            if self.config.task_limit.is_some() {
-                if tasks_processed >= self.config.task_limit.unwrap() {
+            if self.config.task_limit.is_some() && tasks_processed >= self.config.task_limit.unwrap() {
                     info!("Task limit reached, stopping optimization early.");
-                    return StopReason::TaskLimitReached;
-                }
+                    stop_reason = StopReason::TaskLimitReached;
+                    break;
             }
 
-            if self.config.node_limit.is_some() {
+            if let Some(node_limit) = self.config.node_limit {
                 let node_count = self.egraph.total_size();
-                if node_count >= self.config.node_limit.unwrap() {
+                if node_count >= node_limit {
                     info!(
                         "Node limit reached ({} nodes), stopping optimization early.",
                         node_count
                     );
-                    return StopReason::NodeLimitReached;
+                    stop_reason = StopReason::NodeLimitReached;
+                    break;
                 }
             }
 
-            if self.config.time_limit.is_some() {
+            if let Some(time_limit) = self.config.time_limit {
                 let elapsed = std::time::Instant::now() - start_time; // Placeholder for actual start time tracking
-                if elapsed >= self.config.time_limit.unwrap() {
+                if elapsed >= time_limit {
                     info!(
                         "Time limit reached (elapsed {:?}), stopping optimization early.",
                         elapsed
                     );
-                    return StopReason::TimeLimitReached;
+                    stop_reason = StopReason::TimeLimitReached;
+                    break;
                 }
             }
         }
 
-        info!(
-            "Search space exhausted after {:?}, no more tasks to explore.",
-            std::time::Instant::now() - start_time
-        );
-        return StopReason::SearchSpaceExhausted;
+        if matches!(stop_reason, StopReason::SearchSpaceExhausted) {
+            info!(
+                "Search space exhausted after {:?}, no more tasks to explore.",
+                std::time::Instant::now() - start_time
+            );
+        }
+
+        #[cfg(feature = "rerun-metrics")]
+        metrics::log_rerun_summary(&self.rerun_metrics, &summary_metrics);
+
+        stop_reason
     }
 
     /// Push a task onto the task stack for processing.
@@ -581,7 +638,7 @@ where
     /// Run an explore group task.
     ///
     /// This explores all expressions in the group.
-    fn run_explore_group(&mut self, task: Task<P>)
+    fn run_explore_group(&mut self, task: Task<P>) -> f64
     where
         Self: ExplorerHooks<L>,
     {
@@ -604,7 +661,7 @@ where
             for (node_id, _) in self.egraph.nodes_in_class(id) {
                 self.task_stack.push(Task::ExploreChildren(node_id));
             }
-            return;
+            return 0.0;
         }
 
         // Once I've explored my children, I explore myself by applying rewrite rules.
@@ -625,8 +682,16 @@ where
         }
 
         // If we discovered new expressions, we need to rebuild the e-graph to propagate equivalences.
+        let mut rebuild_time_s = 0.0;
         if changed {
+            let rebuild_start = Instant::now();
             self.egraph.rebuild();
+            rebuild_time_s = rebuild_start.elapsed().as_secs_f64();
+
+            debug!(
+                "Rebuilt e-graph for group {:?} in {:.6}s after discovering new equivalences.",
+                id, rebuild_time_s
+            );
         }
 
         debug!(
@@ -648,6 +713,8 @@ where
             );
             self.task_stack.pop();
         }
+
+        rebuild_time_s
     }
 
     /// Run an explore children task.

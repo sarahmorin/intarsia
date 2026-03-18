@@ -154,6 +154,9 @@
 // Generic optimizer framework
 pub mod framework;
 
+#[cfg(feature = "rerun-metrics")]
+pub mod metrics;
+
 // Re-export commonly used items from framework
 pub use framework::{
     CostDomain, CostFunction, ExplorerHooks, OptimizerFramework, Property, PropertyAwareLanguage,
