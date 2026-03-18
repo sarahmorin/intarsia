@@ -1,5 +1,5 @@
 #[cfg(feature = "rerun-metrics")]
-#[path = "boolean_optimizer/mod.rs"]
+#[path = "../examples/boolean-optimizer/mod.rs"]
 mod bool_opt;
 
 #[cfg(feature = "rerun-metrics")]

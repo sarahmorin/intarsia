@@ -38,6 +38,7 @@ categories.workspace = true
 exclude = ["docs"]
 
 [features]
+# TODO: Remove from default when done testing
 default = ["rerun-metrics"]
 build-helpers = ["dep:intarsia-build"]
 rerun-metrics = ["dep:rerun", "dep:uuid"]
@@ -70,13 +71,6 @@ const_format = "0.2.35"
 env_logger = "0.11"
 
 [[example]]
-name = "database_optimizer"
-path = "examples/database_optimizer/main.rs"
-
-[[example]]
-name = "boolean_optimizer"
-path = "examples/boolean_optimizer/main.rs"
-
-[[example]]
-name = "rerun_simple"
-path = "examples/rerun_simple.rs"
+name = "rerun-simple"
+path = "experiments/rerun-simple.rs"
+required-features = ["rerun-metrics"]
