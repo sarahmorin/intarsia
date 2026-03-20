@@ -61,6 +61,7 @@ log = "0.4.29"
 intarsia-macros = { version = "0.1.0-alpha", path = "intarsia-macros" }
 intarsia-build = { version = "0.1.0-alpha", path = "intarsia-build", optional = true }
 metrics = "0.24.3"
+ordered-float = "4.6.0"
 rerun = { version = "0.29.1", default-features = false, features = [
     "sdk",
 ], optional = true }
@@ -73,4 +74,9 @@ env_logger = "0.11"
 [[example]]
 name = "rerun-simple"
 path = "experiments/rerun-simple.rs"
+required-features = ["rerun-metrics"]
+
+[[example]]
+name = "math-bench"
+path = "experiments/math-bench/main.rs"
 required-features = ["rerun-metrics"]

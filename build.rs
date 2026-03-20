@@ -14,4 +14,8 @@ fn main() {
             e
         );
     }
+
+    if let Err(e) = intarsia_build::compile_isle_dir("experiments/math-bench/isle") {
+        println!("cargo:warning=Failed to compile math-bench ISLE: {}", e);
+    }
 }

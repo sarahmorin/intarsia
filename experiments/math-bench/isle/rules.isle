@@ -1,0 +1,218 @@
+;; Required Id primitive for egg/intarsia integration
+(type Id (primitive Id))
+(type str (primitive String))
+
+;; Math language terms and integration hooks.
+(decl pure multi Constant (i64) Id)
+(extern extractor Constant extractor_constant)
+(extern constructor Constant constructor_constant)
+
+(decl pure multi Symbol (str) Id)
+(extern extractor Symbol extractor_symbol)
+(extern constructor Symbol constructor_symbol)
+
+(decl multi Diff (Id Id) Id)
+(extern extractor Diff extractor_diff)
+(extern constructor Diff constructor_diff)
+
+(decl multi Integral (Id Id) Id)
+(extern extractor Integral extractor_integral)
+(extern constructor Integral constructor_integral)
+
+(decl multi Add (Id Id) Id)
+(extern extractor Add extractor_add)
+(extern constructor Add constructor_add)
+
+(decl multi Sub (Id Id) Id)
+(extern extractor Sub extractor_sub)
+(extern constructor Sub constructor_sub)
+
+(decl multi Mul (Id Id) Id)
+(extern extractor Mul extractor_mul)
+(extern constructor Mul constructor_mul)
+
+(decl multi Div (Id Id) Id)
+(extern extractor Div extractor_div)
+(extern constructor Div constructor_div)
+
+(decl multi Pow (Id Id) Id)
+(extern extractor Pow extractor_pow)
+(extern constructor Pow constructor_pow)
+
+(decl multi Ln (Id) Id)
+(extern extractor Ln extractor_ln)
+(extern constructor Ln constructor_ln)
+
+(decl multi Sqrt (Id) Id)
+(extern extractor Sqrt extractor_sqrt)
+(extern constructor Sqrt constructor_sqrt)
+
+(decl multi Sin (Id) Id)
+(extern extractor Sin extractor_sin)
+(extern constructor Sin constructor_sin)
+
+(decl multi Cos (Id) Id)
+(extern extractor Cos extractor_cos)
+(extern constructor Cos constructor_cos)
+
+(decl multi explore (Id) Id)
+
+;; Core algebraic rewrites.
+;; comm-add
+(rule
+    (explore (Add a b))
+    (Add b a)
+)
+
+;; comm-mul
+(rule
+    (explore (Mul a b))
+    (Mul b a)
+)
+
+;; assoc-add
+(rule
+    (explore (Add a (Add b c)))
+    (Add (Add a b) c)
+)
+
+;; assoc-mul
+(rule
+    (explore (Mul a (Mul b c)))
+    (Mul (Mul a b) c)
+)
+
+;; sub-canon
+(rule
+    (explore (Sub a b))
+    (Add a (Mul (Constant -1) b))
+)
+
+;; zero-add
+(rule
+    (explore (Add a (Constant 0)))
+    a
+)
+
+;; zero-mul
+(rule
+    (explore (Mul a (Constant 0)))
+    (Constant 0)
+)
+
+;; one-mul
+(rule
+    (explore (Mul a (Constant 1)))
+    a
+)
+
+;; add-zero
+(rule
+    (explore a)
+    (Add a (Constant 0))
+)
+
+;; mul-one
+(rule
+    (explore a)
+    (Mul a (Constant 1))
+)
+
+;; cancel-sub
+(rule
+    (explore (Sub a a))
+    (Constant 0)
+)
+
+;; distribute
+(rule
+    (explore (Mul a (Add b c)))
+    (Add (Mul a b) (Mul a c))
+)
+
+;; factor
+(rule
+    (explore (Add (Mul a b) (Mul a c)))
+    (Mul a (Add b c))
+)
+
+;; pow-mul
+(rule
+    (explore (Mul (Pow a b) (Pow a c)))
+    (Pow a (Add b c))
+)
+
+;; pow1
+(rule
+    (explore (Pow x (Constant 1)))
+    x
+)
+
+;; pow2
+(rule
+    (explore (Pow x (Constant 2)))
+    (Mul x x)
+)
+
+;; Differential rewrites.
+;; d-add
+(rule
+    (explore (Diff x (Add a b)))
+    (Add (Diff x a) (Diff x b))
+)
+
+;; d-mul
+(rule
+    (explore (Diff x (Mul a b)))
+    (Add (Mul a (Diff x b)) (Mul b (Diff x a)))
+)
+
+;; d-sin
+(rule
+    (explore (Diff x (Sin x)))
+    (Cos x)
+)
+
+;; d-cos
+(rule
+    (explore (Diff x (Cos x)))
+    (Mul (Constant -1) (Sin x))
+)
+
+;; Integral rewrites.
+;; i-one
+(rule
+    (explore (Integral (Constant 1) x))
+    x
+)
+
+;; i-cos
+(rule
+    (explore (Integral (Cos x) x))
+    (Sin x)
+)
+
+;; i-sin
+(rule
+    (explore (Integral (Sin x) x))
+    (Mul (Constant -1) (Cos x))
+)
+
+;; i-sum
+(rule
+    (explore (Integral (Add f g) x))
+    (Add (Integral f x) (Integral g x))
+)
+
+;; i-dif
+(rule
+    (explore (Integral (Sub f g) x))
+    (Sub (Integral f x) (Integral g x))
+)
+
+;; i-parts
+(rule
+    (explore (Integral (Mul a b) x))
+    (Sub (Mul a (Integral b x))
+         (Integral (Mul (Diff x a) (Integral b x)) x))
+)
