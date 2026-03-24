@@ -220,8 +220,6 @@ Finally, we can revert to our initial, very simple rewrite ruleset that equates 
 | Sub-classes | 2           | -                | -          |
 | Edges       | 4           | 12               | 200%       |
 
-## Footnotes
-
 [^1]: Depending on the domain, generating the "property" versions of terminal inputs can either be specified in the ruleset (e.g. with a rule similar to our previous "inflation" rule) or by initializing the graph with some sort of catalog data of existing inputs.
 
 [^2]: The enforcer e-graph technically represents infinitely many terms of form `ignore_p(P(ignore_p(P(...))))`, but we don't count them here.
