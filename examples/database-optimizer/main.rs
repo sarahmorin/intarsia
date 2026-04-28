@@ -7,7 +7,7 @@ mod db_opt;
 use egg::RecExpr;
 
 // Import from the database optimizer module
-use db_opt::{DbOptimizer, DbUserData, catalog, language::Optlang, types::DataType};
+use db_opt::{catalog, language::Optlang, new_db_optimizer, types::DataType};
 
 fn main() {
     // ============================================================
@@ -204,11 +204,9 @@ fn main() {
 
     println!("Step 3: Initializing optimizer...");
 
-    // Create DbUserData
-    let user_data = DbUserData::new(catalog);
-
-    // Create optimizer using the generic framework
-    let mut optimizer = DbOptimizer::new(user_data);
+    // Create optimizer using the generic framework. `new_db_optimizer` wires the
+    // catalog into both the analysis transfer function and the user data in one shot.
+    let mut optimizer = new_db_optimizer(catalog);
 
     // Add the initial expression to the e-graph
     let root_id = optimizer.init(initial_expr);

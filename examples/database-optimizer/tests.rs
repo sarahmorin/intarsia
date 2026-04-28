@@ -1,40 +1,152 @@
-use intarsia::{CostDomain, CostFunction};
+use intarsia::framework::EggExtractor;
 use log::{debug, info};
 
 use super::catalog::Catalog;
-use super::cost::DbCost;
+use super::cost::{CPU_COST, IO_COST, TRANSFER_COST};
 use super::language::Optlang;
+use super::property::SimpleProperty;
 use super::types::{ColSetId, DataType, IndexId, TableId};
-use super::{CPU_COST, DbOptimizer, DbUserData, IO_COST, TRANSFER_COST};
-use egg::{CostFunction as EggCostFunction, Extractor, Id, RecExpr};
+use super::{DbAnalysis, DbOptimizer, DbUserData, new_db_optimizer};
+use egg::{CostFunction as EggCostFunction, Id, RecExpr};
 
-/// Wrapper struct to adapt the framework's CostFunction to egg's CostFunction trait.
-/// This allows us to use egg's Extractor directly with our cost function for testing.
-struct CostFunctionAdapter<'a> {
-    optimizer: &'a DbOptimizer,
+/// Egg-style cost function that mirrors `DbTransfer::cost`. Used by tests that want
+/// to extract under the database cost model *without* running the cascades search
+/// first (i.e., the cost model in isolation, before any rewrites). Reads `DbStats`
+/// from each e-class's logical analysis data — those are populated by `Analysis::make`
+/// at insertion time, so they're available even before `run`.
+///
+/// Stays in sync with `DbTransfer::cost` because it uses the same constants and
+/// formulas; the only structural difference is that child costs come from egg's
+/// bottom-up closure instead of from the analysis winners.
+struct DbCostFn<'a> {
+    egraph: &'a egg::EGraph<Optlang, DbAnalysis>,
 }
 
-impl<'a> EggCostFunction<Optlang> for CostFunctionAdapter<'a> {
-    type Cost = DbCost;
+impl<'a> EggCostFunction<Optlang> for DbCostFn<'a> {
+    type Cost = usize;
 
-    fn cost<C>(&mut self, enode: &Optlang, costs: C) -> Self::Cost
+    fn cost<C>(&mut self, node: &Optlang, mut costs: C) -> usize
     where
-        C: FnMut(Id) -> Self::Cost,
+        C: FnMut(Id) -> usize,
     {
-        // Use the optimizer's compute_cost method directly
-        // The optimizer's cost function already returns DbCost
-        self.optimizer.compute_cost(enode, costs)
+        let stats = |id: Id| &self.egraph[id].data.logical;
+        match node {
+            Optlang::Int(_)
+            | Optlang::Bool(_)
+            | Optlang::Str(_)
+            | Optlang::ColSet(_)
+            | Optlang::Table(_)
+            | Optlang::Index(_) => 0,
+
+            Optlang::Add([l, r]) | Optlang::Sub([l, r]) => 2usize
+                .saturating_mul(CPU_COST)
+                .saturating_add(costs(*l))
+                .saturating_add(costs(*r)),
+            Optlang::Mul([l, r]) | Optlang::Div([l, r]) => 4usize
+                .saturating_mul(CPU_COST)
+                .saturating_add(costs(*l))
+                .saturating_add(costs(*r)),
+
+            Optlang::Eq([l, r])
+            | Optlang::Lt([l, r])
+            | Optlang::Gt([l, r])
+            | Optlang::Le([l, r])
+            | Optlang::Ge([l, r])
+            | Optlang::Ne([l, r])
+            | Optlang::And([l, r])
+            | Optlang::Or([l, r]) => CPU_COST
+                .saturating_add(costs(*l))
+                .saturating_add(costs(*r)),
+            Optlang::Not(x) => CPU_COST.saturating_add(costs(*x)),
+
+            Optlang::TableScan(t) => {
+                let s = stats(*t);
+                s.blocks
+                    .unwrap_or(0)
+                    .saturating_mul(IO_COST)
+                    .saturating_add(s.cardinality.unwrap_or(0).saturating_mul(TRANSFER_COST))
+            }
+            Optlang::IndexScan(i) => stats(*i)
+                .cardinality
+                .unwrap_or(0)
+                .saturating_mul(IO_COST.saturating_add(TRANSFER_COST)),
+
+            Optlang::Sort([src, _]) => {
+                // If the source already provides Sorted, sort is free — pass source cost
+                // through unchanged. Otherwise, charge the sort's own I/O and CPU work
+                // (no recursive source cost), matching DbTransfer::cost.
+                if self.egraph[*src].data.provided.contains(&SimpleProperty::Sorted) {
+                    return costs(*src);
+                }
+                let s = stats(*src);
+                let n = s.cardinality.unwrap_or(0);
+                let log_n = if n > 0 { (n as f64).log2() as usize } else { 0 };
+                let io = 3usize
+                    .saturating_mul(s.blocks.unwrap_or(0))
+                    .saturating_mul(IO_COST);
+                let cpu = n.saturating_mul(log_n).saturating_mul(CPU_COST);
+                io.saturating_add(cpu)
+            }
+
+            Optlang::Select([src, pred]) => {
+                let n = stats(*src).cardinality.unwrap_or(0);
+                costs(*src).saturating_add(
+                    costs(*pred).saturating_add(TRANSFER_COST).saturating_mul(n),
+                )
+            }
+            Optlang::Project([cols, src]) => {
+                let n = stats(*src).cardinality.unwrap_or(0);
+                costs(*src).saturating_add(
+                    costs(*cols).saturating_add(TRANSFER_COST).saturating_mul(n),
+                )
+            }
+
+            // Joins: report only the join operator's own work; matches DbTransfer::cost.
+            Optlang::NestedLoopJoin([l, r, p]) => {
+                let ls = stats(*l);
+                let rs = stats(*r);
+                let lb = ls.blocks.unwrap_or(0);
+                let rb = rs.blocks.unwrap_or(0);
+                let lc = ls.cardinality.unwrap_or(0);
+                let rc = rs.cardinality.unwrap_or(0);
+                lb.saturating_mul(IO_COST)
+                    .saturating_add(lb.saturating_mul(rb).saturating_mul(IO_COST))
+                    .saturating_add(lc.saturating_mul(rc).saturating_mul(costs(*p)))
+            }
+            Optlang::HashJoin([l, r, p]) => {
+                let ls = stats(*l);
+                let rs = stats(*r);
+                let lb = ls.blocks.unwrap_or(0);
+                let rb = rs.blocks.unwrap_or(0);
+                let lc = ls.cardinality.unwrap_or(0);
+                let rc = rs.cardinality.unwrap_or(0);
+                3usize
+                    .saturating_mul(lb.saturating_add(rb).saturating_mul(IO_COST))
+                    .saturating_add(lc.saturating_add(rc).saturating_mul(costs(*p)))
+            }
+            Optlang::MergeJoin([l, r, p]) => {
+                let ls = stats(*l);
+                let rs = stats(*r);
+                let lb = ls.blocks.unwrap_or(0);
+                let rb = rs.blocks.unwrap_or(0);
+                let lc = ls.cardinality.unwrap_or(0);
+                let rc = rs.cardinality.unwrap_or(0);
+                lb.saturating_add(rb)
+                    .saturating_mul(IO_COST)
+                    .saturating_add(lc.saturating_add(rc).saturating_mul(costs(*p)))
+            }
+
+            // Logical poison: max cost so the extractor avoids them.
+            Optlang::Join(_) | Optlang::Scan(_) => usize::MAX,
+        }
     }
 }
 
-/// Helper function to extract an expression with cost without running optimization.
-/// This uses egg's Extractor directly with the optimizer's cost function.
+/// Helper: extract using the database cost model, without running cascades search.
+/// Useful for testing the cost formulas in isolation on freshly-added expressions.
 fn extract_with_cost_only(ctx: &DbOptimizer, id: Id) -> (usize, RecExpr<Optlang>) {
-    let cost_fn = CostFunctionAdapter { optimizer: ctx };
-    let extractor = Extractor::new(&ctx.egraph, cost_fn);
-    let (db_cost, expr) = extractor.find_best(id);
-    // Return just the numeric cost part
-    (db_cost.cost(), expr)
+    let extractor = EggExtractor::new(&ctx.egraph, DbCostFn { egraph: &ctx.egraph });
+    extractor.find_best(id)
 }
 
 /// Initialize the logger for tests at debug level
@@ -115,7 +227,7 @@ fn make_colset_expr(colset_id: ColSetId) -> RecExpr<Optlang> {
 fn test_create_context() {
     init_logger();
     let catalog = Catalog::new();
-    let ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let ctx = new_db_optimizer(catalog);
     assert_eq!(ctx.egraph.total_number_of_nodes(), 0);
 }
 
@@ -194,7 +306,7 @@ fn test_catalog_loaded_correctly() {
         .expect("Failed to create products name index");
 
     // Create optimizer context with the catalog
-    let ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let ctx = new_db_optimizer(catalog);
 
     // Verify that all tables are present in the catalog
     assert_eq!(
@@ -345,7 +457,7 @@ fn test_catalog_loaded_correctly() {
 fn test_init_simple_expression() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create a simple arithmetic expression: 1 + 2
     let expr: RecExpr<Optlang> = "(+ 1 2)".parse().unwrap();
@@ -359,14 +471,15 @@ fn test_init_simple_expression() {
 fn test_init_and_extract_identity() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create a simple constant expression
     let expr: RecExpr<Optlang> = "42".parse().unwrap();
     let id = ctx.init(expr.clone());
 
-    // Extract without running optimization - should get back the same expression
-    let result = ctx.extract(id);
+    // Extract without running optimization. Use the egg-cost adapter since the
+    // analysis-driven `WinnerExtractor` requires `run` to populate winners first.
+    let (_cost, result) = extract_with_cost_only(&ctx, id);
     assert_eq!(result.to_string(), "42");
 }
 
@@ -374,14 +487,14 @@ fn test_init_and_extract_identity() {
 fn test_arithmetic_expression() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create an arithmetic expression: (1 + 2) * 3
     let expr: RecExpr<Optlang> = "(* (+ 1 2) 3)".parse().unwrap();
     let id = ctx.init(expr);
 
-    // Extract the expression
-    let result = ctx.extract(id);
+    // Extract via the egg-cost adapter (no optimizer run).
+    let (_cost, result) = extract_with_cost_only(&ctx, id);
     assert_eq!(result.to_string(), "(* (+ 1 2) 3)");
 }
 
@@ -389,19 +502,19 @@ fn test_arithmetic_expression() {
 fn test_comparison_operations() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Test equality comparison: 5 == 5
     let expr: RecExpr<Optlang> = "(== 5 5)".parse().unwrap();
     let id = ctx.init(expr);
-    let result = ctx.extract(id);
+    let (_cost, result) = extract_with_cost_only(&ctx, id);
     assert_eq!(result.to_string(), "(== 5 5)");
 
     // Test less than: 3 < 7
-    let mut ctx2 = DbOptimizer::new(DbUserData::new(Catalog::new()));
+    let mut ctx2 = new_db_optimizer(Catalog::new());
     let expr2: RecExpr<Optlang> = "(< 3 7)".parse().unwrap();
     let id2 = ctx2.init(expr2);
-    let result2 = ctx2.extract(id2);
+    let (_cost2, result2) = extract_with_cost_only(&ctx2, id2);
     assert_eq!(result2.to_string(), "(< 3 7)");
 }
 
@@ -409,19 +522,19 @@ fn test_comparison_operations() {
 fn test_logical_operations() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Test AND operation: true AND false
     let expr: RecExpr<Optlang> = "(AND true false)".parse().unwrap();
     let id = ctx.init(expr);
-    let result = ctx.extract(id);
+    let (_cost, result) = extract_with_cost_only(&ctx, id);
     assert_eq!(result.to_string(), "(AND true false)");
 
     // Test NOT operation
-    let mut ctx2 = DbOptimizer::new(DbUserData::new(Catalog::new()));
+    let mut ctx2 = new_db_optimizer(Catalog::new());
     let expr2: RecExpr<Optlang> = "(NOT true)".parse().unwrap();
     let id2 = ctx2.init(expr2);
-    let result2 = ctx2.extract(id2);
+    let (_cost2, result2) = extract_with_cost_only(&ctx2, id2);
     assert_eq!(result2.to_string(), "(NOT true)");
 }
 
@@ -429,7 +542,7 @@ fn test_logical_operations() {
 fn test_run_optimization() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create a simple expression and run optimization
     let expr: RecExpr<Optlang> = "(+ 1 2)".parse().unwrap();
@@ -446,7 +559,7 @@ fn test_run_optimization() {
 fn test_nested_expressions() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create a nested expression: ((1 + 2) * (3 - 4))
     let expr: RecExpr<Optlang> = "(* (+ 1 2) (- 3 4))".parse().unwrap();
@@ -463,7 +576,7 @@ fn test_nested_expressions() {
 fn test_table_expression() {
     init_logger();
     let catalog = create_test_catalog();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Get the table ID for "users" - it should be 1 (first table created)
     let table_id = *ctx.user_data.catalog.table_ids.get("users").unwrap();
@@ -487,7 +600,7 @@ fn test_table_expression() {
 fn test_complex_logical_expression() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create a complex logical expression: (a > 5) AND (b < 10)
     let expr: RecExpr<Optlang> = "(AND (> 10 5) (< 3 10))".parse().unwrap();
@@ -503,7 +616,7 @@ fn test_complex_logical_expression() {
 fn test_multiple_operations() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Test that we can add multiple expressions to the same context
     let expr1: RecExpr<Optlang> = "(+ 1 2)".parse().unwrap();
@@ -515,9 +628,10 @@ fn test_multiple_operations() {
     // Both expressions should be in the e-graph
     assert!(ctx.egraph.total_number_of_nodes() > 0);
 
-    // Should be able to extract both
-    let result1 = ctx.extract(id1);
-    let result2 = ctx.extract(id2);
+    // Should be able to extract both. Use the egg-cost adapter since `WinnerExtractor`
+    // requires `run` to populate winners.
+    let (_cost1, result1) = extract_with_cost_only(&ctx, id1);
+    let (_cost2, result2) = extract_with_cost_only(&ctx, id2);
 
     assert_eq!(result1.to_string(), "(+ 1 2)");
     assert_eq!(result2.to_string(), "(* 3 4)");
@@ -529,7 +643,7 @@ fn test_multiple_operations() {
 fn test_cost_arithmetic_simple() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create a simple arithmetic expression: 1 + 2
     // Cost should be: 1 (for +) + 0 (for 1) + 0 (for 2) = 1
@@ -546,7 +660,7 @@ fn test_cost_arithmetic_simple() {
 fn test_cost_arithmetic_nested() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create: (1 + 2) * 3
     // Cost should be: 1 (* op) + 1 (+ op) + 0 (constants) = 2
@@ -563,7 +677,7 @@ fn test_cost_arithmetic_nested() {
 fn test_cost_arithmetic_complex() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create: ((1 + 2) * (3 - 4)) / 5
     // Cost: 1 (/) + 1 (*) + 1 (+) + 1 (-) + 0 (constants) = 4
@@ -580,7 +694,7 @@ fn test_cost_arithmetic_complex() {
 fn test_cost_comparison_operations() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create: (a > 5) AND (b < 10)
     // Cost: 1 (AND) + 1 (>) + 1 (<) + 0 (constants) = 3
@@ -630,7 +744,7 @@ fn test_cost_with_catalog_table_sizes() {
         .unwrap()
         .set_est_num_rows(10000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog.clone()));
+    let mut ctx = new_db_optimizer(catalog.clone());
 
     // Create TableScan for small table
     let small_scan = make_table_scan_expr(small_table_id);
@@ -664,7 +778,7 @@ fn test_cost_with_catalog_table_sizes() {
 fn test_cost_chooses_cheaper_equivalent() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create two equivalent expressions with different costs
     // Expression 1: (1 + 2) + 3 = cost 2 (two + operators)
@@ -695,7 +809,7 @@ fn test_cost_chooses_cheaper_equivalent() {
 fn test_cost_prefers_cheaper_when_different() {
     init_logger();
     let catalog = Catalog::new();
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Create two expressions with significantly different costs
     // Cheap: 1 + 2 = cost 1
@@ -752,7 +866,7 @@ fn test_cost_index_scan_vs_table_scan() {
         .unwrap()
         .set_est_num_rows(1000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog.clone()));
+    let mut ctx = new_db_optimizer(catalog.clone());
 
     // Create TableScan
     let table_scan = make_table_scan_expr(table_id);
@@ -804,7 +918,7 @@ fn test_cost_sort_optimization() {
         .unwrap()
         .set_est_num_rows(500);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog.clone()));
+    let mut ctx = new_db_optimizer(catalog.clone());
 
     // Create: SORT(TABLE_SCAN(table)) - unsorted input needs sorting
     let table_scan = make_table_scan_expr(table_id);
@@ -893,7 +1007,7 @@ fn test_merge_join_property_aware_optimization() {
         .unwrap()
         .set_est_num_rows(200);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build initial expression with MergeJoin
     // The optimizer should add both TableScan and IndexScan alternatives via exploration
@@ -1038,7 +1152,7 @@ fn test_merge_join_extraction_uses_sorted_inputs() {
         .unwrap()
         .set_est_num_rows(200);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build initial expression with logical Join
     let mut initial_expr = RecExpr::default();
@@ -1153,7 +1267,7 @@ fn test_selection_pushdown_through_join() {
         .unwrap()
         .set_est_num_rows(10000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build initial (unoptimized) expression:
     // SELECT(JOIN(customers, orders), age > 30)
@@ -1184,7 +1298,9 @@ fn test_selection_pushdown_through_join() {
     let root_id = ctx.egraph.add_expr(&initial_expr);
 
     // Get initial cost
-    let (initial_cost, initial_result) = ctx.extract_with_cost(root_id);
+    // Pre-run extraction: use the egg-cost adapter (the analysis-driven extractor
+    // requires `run` to populate winners first).
+    let (initial_cost, initial_result) = extract_with_cost_only(&ctx, root_id);
     debug!("Initial expression: {}", initial_result);
     debug!("Initial cost: {:?}", initial_cost);
 
@@ -1209,7 +1325,7 @@ fn test_selection_pushdown_through_join() {
 
     // EXPECTED STRUCTURE:
     // Initial:  SELECT(JOIN(SCAN(customers), SCAN(orders)), age > 30)
-    // Expected: PHYSICAL_JOIN(SELECT(TABLE_SCAN(customers), age > 30), TABLE_SCAN(orders), pred)
+    // Expected: PHYSICAL_JOIN(SELECT(PHYSICAL_SCAN(customers), age > 30), PHYSICAL_SCAN(orders), pred)
     //
     // The selection should be pushed down INSIDE the join, not wrapping it
 
@@ -1222,10 +1338,13 @@ fn test_selection_pushdown_through_join() {
         optimized_str
     );
 
-    // 2. Must use physical scans, not logical SCAN
+    // 2. Must use physical scans, not logical SCAN. The cost-driven extractor may
+    // pick TABLE_SCAN or INDEX_SCAN depending on which one combines with the chosen
+    // physical join most cheaply (INDEX_SCAN feeds MERGE_JOIN cheaper because it
+    // provides Sorted).
     assert!(
-        optimized_str.contains("TABLE_SCAN"),
-        "Expected TABLE_SCAN, got: {}",
+        optimized_str.contains("TABLE_SCAN") || optimized_str.contains("INDEX_SCAN"),
+        "Expected a physical scan (TABLE_SCAN or INDEX_SCAN), got: {}",
         optimized_str
     );
 
@@ -1272,7 +1391,7 @@ fn test_selection_pushdown_through_projection() {
         .unwrap()
         .set_est_num_rows(5000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build: SELECT(PROJECT(columns, scan), salary > 50000)
     // Optimizer should push selection before projection
@@ -1293,7 +1412,9 @@ fn test_selection_pushdown_through_projection() {
     initial_expr.add(Optlang::Select([project, predicate]));
 
     let root_id = ctx.egraph.add_expr(&initial_expr);
-    let (initial_cost, initial_best) = ctx.extract_with_cost(root_id);
+    // Pre-run extraction: use the egg-cost adapter (the analysis-driven extractor
+    // requires `run` to populate winners first).
+    let (initial_cost, initial_best) = extract_with_cost_only(&ctx, root_id);
 
     // Run optimizer
     ctx.run(root_id);
@@ -1385,7 +1506,7 @@ fn test_combine_consecutive_selections() {
         .unwrap()
         .set_est_num_rows(2000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build: SELECT(SELECT(scan, price > 100), quantity > 10)
     // Should be combined into: SELECT(scan, price > 100 AND quantity > 10)
@@ -1408,7 +1529,9 @@ fn test_combine_consecutive_selections() {
     initial_expr.add(Optlang::Select([select1, pred2]));
 
     let root_id = ctx.egraph.add_expr(&initial_expr);
-    let (initial_cost, initial_result) = ctx.extract_with_cost(root_id);
+    // Pre-run extraction: use the egg-cost adapter (the analysis-driven extractor
+    // requires `run` to populate winners first).
+    let (initial_cost, initial_result) = extract_with_cost_only(&ctx, root_id);
     debug!("Initial: {}", initial_result);
 
     // Run optimizer
@@ -1509,7 +1632,7 @@ fn test_join_physical_implementation_selection() {
         .unwrap()
         .set_est_num_rows(10000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build logical join
     let mut initial_expr = RecExpr::default();
@@ -1640,7 +1763,7 @@ fn test_complex_nested_optimization() {
         .unwrap()
         .set_est_num_rows(20000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build complex query:
     // SELECT(JOIN(JOIN(users, orders), items), age > 25)
@@ -1672,7 +1795,9 @@ fn test_complex_nested_optimization() {
     initial_expr.add(Optlang::Select([join2, age_pred]));
 
     let root_id = ctx.egraph.add_expr(&initial_expr);
-    let (initial_cost, initial_result) = ctx.extract_with_cost(root_id);
+    // Pre-run extraction: use the egg-cost adapter (the analysis-driven extractor
+    // requires `run` to populate winners first).
+    let (initial_cost, initial_result) = extract_with_cost_only(&ctx, root_id);
 
     debug!("=== Complex Query Optimization ===");
     debug!("Initial plan: {}", initial_result);
@@ -1772,7 +1897,7 @@ fn test_arithmetic_simplification_in_query() {
         .unwrap()
         .set_est_num_rows(1000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build query with arithmetic that can be simplified:
     // SELECT(scan, (price * 1) + 0 > 100)
@@ -1796,7 +1921,9 @@ fn test_arithmetic_simplification_in_query() {
     initial_expr.add(Optlang::Select([scan, predicate]));
 
     let root_id = ctx.egraph.add_expr(&initial_expr);
-    let (initial_cost, initial_result) = ctx.extract_with_cost(root_id);
+    // Pre-run extraction: use the egg-cost adapter (the analysis-driven extractor
+    // requires `run` to populate winners first).
+    let (initial_cost, initial_result) = extract_with_cost_only(&ctx, root_id);
 
     debug!("Initial with complex arithmetic: {}", initial_result);
 
@@ -1903,7 +2030,7 @@ fn test_join_associativity_optimization() {
         .unwrap()
         .set_est_num_rows(100000);
 
-    let mut ctx = DbOptimizer::new(DbUserData::new(catalog));
+    let mut ctx = new_db_optimizer(catalog);
 
     // Build: JOIN(small, JOIN(medium, large))
     // Optimizer might reorder to: JOIN(JOIN(small, medium), large) if beneficial
@@ -1927,7 +2054,9 @@ fn test_join_associativity_optimization() {
     initial_expr.add(Optlang::Join([small_scan, join1, pred2]));
 
     let root_id = ctx.egraph.add_expr(&initial_expr);
-    let (initial_cost, initial_result) = ctx.extract_with_cost(root_id);
+    // Pre-run extraction: use the egg-cost adapter (the analysis-driven extractor
+    // requires `run` to populate winners first).
+    let (initial_cost, initial_result) = extract_with_cost_only(&ctx, root_id);
 
     debug!("Initial join order: {}", initial_result);
     debug!("Initial cost: {:?}", initial_cost);
@@ -1989,9 +2118,9 @@ fn test_join_associativity_optimization() {
 
     // 5. Cost should be reasonable (not overflow)
     assert!(
-        optimized_cost.cost < usize::MAX / 2,
+        optimized_cost < usize::MAX / 2,
         "FAILED: Join cost should be reasonable, got {}",
-        optimized_cost.cost
+        optimized_cost
     );
 
     // Note: We don't assert a specific join order here, as the optimizer

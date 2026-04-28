@@ -1,14 +1,11 @@
-/// Query language definition and property requirements.
+/// Query language definition for the database optimizer example.
 ///
-/// This module defines the Optlang language for database query optimization
-/// and implements property requirements for each operator.
+/// Property requirements and cost are now expressed via [`super::cost::DbTransfer`]
+/// (a `PropertyTransfer` impl), so this file is just the `define_language!` block.
 use egg::{Id, define_language};
-use intarsia::framework::PropertyAwareLanguage;
 
-use super::property::SimpleProperty;
 use super::types::{ColSetId, IndexId, TableId};
 
-// Define the operator language for database query optimization
 define_language! {
     pub enum Optlang {
         // Constant Values
@@ -53,28 +50,5 @@ define_language! {
         Table(TableId),
         ColSet(ColSetId),
         Index(IndexId),
-    }
-}
-
-/// Implement property requirements for the query language.
-///
-/// This defines what properties each operator requires from its children.
-impl PropertyAwareLanguage<SimpleProperty> for Optlang {
-    fn property_req(&self, child_index: usize) -> SimpleProperty {
-        match self {
-            // MergeJoin requires both inputs to be sorted (children 0 and 1)
-            // The predicate (child 2) has no specific requirements
-            Optlang::MergeJoin(_) => {
-                if child_index == 0 || child_index == 1 {
-                    SimpleProperty::Sorted
-                } else {
-                    SimpleProperty::Bottom
-                }
-            }
-
-            // Most operators don't require specific properties from their children
-            // They work with any sortedness
-            _ => SimpleProperty::Bottom,
-        }
     }
 }
