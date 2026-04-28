@@ -42,11 +42,19 @@
     (explore (Not (And x y)))
     (Or (Not x) (Not y))
 )
+(rule
+    (explore (Or (Not x) (Not y)))
+    (Not (And x y))
+)
 
 ;; NOT(OR(x, y)) => AND(NOT(x), NOT(y))
 (rule
     (explore (Not (Or x y)))
     (And (Not x) (Not y))
+)
+(rule
+    (explore (And (Not x) (Not y)))
+    (Not (Or x y))
 )
 
 ;; Idempotent laws:

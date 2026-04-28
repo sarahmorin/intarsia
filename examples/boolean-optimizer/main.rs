@@ -7,7 +7,7 @@
 #[path = "mod.rs"]
 mod bool_opt;
 
-use bool_opt::{BoolLang, BoolOptimizer};
+use bool_opt::{BoolLang, new_optimizer};
 use egg::RecExpr;
 
 fn main() {
@@ -40,7 +40,7 @@ fn main() {
     // Create expression: NOT(AND(x, y))
     // This should transform to: OR(NOT(x), NOT(y))
     let expr2 = create_demorgans_example();
-    demonstrate_optimization("NOT(AND(x, y))", expr2);
+    demonstrate_optimization("OR(NOT(x), NOT(y))", expr2);
 
     println!("\n");
 
@@ -94,7 +94,7 @@ fn demonstrate_optimization(description: &str, expr: RecExpr<BoolLang>) {
     println!("Initial size: {} nodes", initial_size);
 
     // Create optimizer instance
-    let mut optimizer = BoolOptimizer::new(());
+    let mut optimizer = new_optimizer();
 
     // Initialize optimizer with the expression
     let root_id = optimizer.init(expr);
@@ -141,7 +141,8 @@ fn create_double_negation() -> RecExpr<BoolLang> {
 /// Create expression: NOT(AND(x, y))
 /// Should transform to: OR(NOT(x), NOT(y)) via De Morgan's law
 fn create_demorgans_example() -> RecExpr<BoolLang> {
-    let expr_str = "(NOT (AND x y))";
+    // let expr_str = "(NOT (AND x y))";
+    let expr_str = "(OR (NOT x) (NOT y))";
     let expr: RecExpr<BoolLang> = expr_str.parse().unwrap();
     expr
 }

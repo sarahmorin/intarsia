@@ -39,7 +39,8 @@ exclude = ["docs"]
 
 [features]
 # TODO: Remove from default when done testing
-default = ["rerun-metrics"]
+# default = ["rerun-metrics"]
+default = []
 build-helpers = ["dep:intarsia-build"]
 rerun-metrics = ["dep:rerun", "dep:uuid"]
 
@@ -70,6 +71,10 @@ const_format = "0.2.35"
 
 [dev-dependencies]
 env_logger = "0.11"
+
+[[example]]
+name = "boolean-optimizer"
+path = "examples/boolean-optimizer/main.rs"
 
 [[example]]
 name = "rerun-simple"
