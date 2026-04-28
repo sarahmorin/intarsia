@@ -77,6 +77,10 @@ name = "boolean-optimizer"
 path = "examples/boolean-optimizer/main.rs"
 
 [[example]]
+name = "database-optimizer"
+path = "examples/database-optimizer/main.rs"
+
+[[example]]
 name = "rerun-simple"
 path = "experiments/rerun-simple.rs"
 required-features = ["rerun-metrics"]

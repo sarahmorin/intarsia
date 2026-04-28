@@ -92,12 +92,14 @@ where
         let cost = winner.cost.clone();
         let root_node_id = winner.node_id;
         let mut expr = RecExpr::default();
-        let mut memo: HashMap<(Id, A::Property), Id> = HashMap::new();
+        let mut memo: HashMap<(Id, A::Property), Option<Id>> = HashMap::new();
+        memo.insert((eclass, requirement.clone()), None);
 
         // The root node was already chosen via the winner lookup above. Add it (and its
         // subtree) by descending through children.
         let root_node = self.egraph.get_node(root_node_id);
-        self.add_node(root_node, &requirement, &mut expr, &mut memo);
+        let new_id = self.add_node(root_node, &requirement, &mut expr, &mut memo);
+        memo.insert((eclass, requirement), Some(new_id));
 
         (cost, expr)
     }
@@ -110,7 +112,7 @@ where
         node: &L,
         desired: &A::Property,
         expr: &mut RecExpr<L>,
-        memo: &mut HashMap<(Id, A::Property), Id>,
+        memo: &mut HashMap<(Id, A::Property), Option<Id>>,
     ) -> Id {
         let children = node.children();
         if children.is_empty() {
@@ -147,17 +149,33 @@ where
     }
 
     /// Append the winner of `(class, req)` to `expr`, with memoization across the DAG.
+    ///
+    /// Memo values are `Option<Id>`: `None` means "in progress" (we're currently
+    /// extracting this pair higher up the call stack). If we see `None` here, the
+    /// optimizer's chosen winners form a cycle — that's a correctness bug in the
+    /// cascades cost evaluation (a finite-cost cyclic plan should not have been
+    /// preferred over any acyclic alternative). Panic with a clear message rather
+    /// than blow the stack.
     fn add_class(
         &self,
         class: Id,
         req: A::Property,
         expr: &mut RecExpr<L>,
-        memo: &mut HashMap<(Id, A::Property), Id>,
+        memo: &mut HashMap<(Id, A::Property), Option<Id>>,
     ) -> Id {
         let canonical = self.egraph.find(class);
-        if let Some(&existing) = memo.get(&(canonical, req.clone())) {
-            return existing;
+        match memo.get(&(canonical, req.clone())) {
+            Some(Some(id)) => return *id,
+            Some(None) => panic!(
+                "WinnerExtractor: cycle in winner's circle at class {:?} with requirement {:?}; \
+                 cascades cost evaluation produced a cyclic plan",
+                canonical, req
+            ),
+            None => {}
         }
+
+        // Mark as in-progress before recursing so a re-visit triggers cycle detection.
+        memo.insert((canonical, req.clone()), None);
 
         let data = &self.egraph[canonical].data;
         let winner = A::winner(data, &req).unwrap_or_else(|| {
@@ -168,7 +186,7 @@ where
         });
         let node = self.egraph.get_node(winner.node_id);
         let new_id = self.add_node(node, &req, expr, memo);
-        memo.insert((canonical, req), new_id);
+        memo.insert((canonical, req), Some(new_id));
         new_id
     }
 }
