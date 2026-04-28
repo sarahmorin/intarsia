@@ -159,7 +159,7 @@ pub mod metrics;
 
 // Re-export commonly used items from framework
 pub use framework::{
-    Demand, ExplorerHooks, NoProperty, OptimizableAnalysis, OptimizerFramework, Property,
-    PropertyAnalysis, PropertyData, PropertyTransfer, SimpleCostAnalysis, SimpleCostData,
-    SimpleCostFn, Task, Winner,
+    Demand, EggExtractor, ExplorerHooks, Extractor, NoProperty, OptimizableAnalysis,
+    OptimizerFramework, Property, PropertyAnalysis, PropertyData, PropertyTransfer,
+    SimpleCostAnalysis, SimpleCostData, SimpleCostFn, Task, Winner, WinnerExtractor,
 };

@@ -30,6 +30,7 @@
 ///
 pub mod analysis;
 pub mod config;
+pub mod extract;
 pub mod hooks;
 pub mod optimizer;
 pub mod property;
@@ -40,6 +41,7 @@ pub use analysis::{
     Demand, OptimizableAnalysis, PropertyAnalysis, PropertyData, PropertyTransfer,
     SimpleCostAnalysis, SimpleCostData, SimpleCostFn, Winner,
 };
+pub use extract::{EggExtractor, Extractor, WinnerExtractor};
 pub use hooks::ExplorerHooks;
 pub use optimizer::{OptimizerFramework, StopReason};
 pub use property::{NoProperty, Property};

@@ -133,7 +133,7 @@ where
         self.task_stack
             .push(Task::OptimizeGroup(id, A::Property::bottom(), false, false));
 
-        let mut stop_reason = StopReason::Unknown(String::from("init"));
+        let mut stop_reason = StopReason::SearchSpaceExhausted;
 
         #[cfg(feature = "rerun-metrics")]
         let mut summary_metrics = metrics::SummaryMetrics::new();
@@ -227,110 +227,26 @@ where
         self.task_stack.push(task);
     }
 
-    /// Extract the best expression for the given group at bottom (no) requirement.
-    pub fn extract(&self, id: Id) -> RecExpr<L> {
-        let (_cost, best_expr) = self.extract_with_cost(id);
-        best_expr
-    }
-
-    /// Extract the best expression along with its cost at bottom requirement.
-    pub fn extract_with_cost(&self, id: Id) -> (A::Cost, RecExpr<L>) {
-        self.extract_with_property(id, A::Property::bottom())
-    }
-
-    /// Extract the best expression satisfying a specific property requirement.
+    /// Extract the best expression for `id` at the bottom (no) requirement.
     ///
-    /// Reads winners directly from the analysis data (`egraph[id].data`). If no
-    /// winner is recorded for the (class, requirement) pair, this panics — by
-    /// contract, callers must have run `run` to populate winners for the requirements
-    /// they intend to extract. (The old code had an `egg::Extractor` fallback; per
-    /// the new design that bypass is removed — winners are the source of truth.)
-    fn extract_with_property(&self, id: Id, props: A::Property) -> (A::Cost, RecExpr<L>) {
-        let eclass = self.egraph.find(id);
-        let data = &self.egraph[eclass].data;
-        let winner = A::winner(data, &props).unwrap_or_else(|| {
-            panic!(
-                "extract: no winner recorded for class {:?} with requirement {:?}; \
-                 run() must populate winners before extract is called",
-                eclass, props
-            )
-        });
-        let cost = winner.cost.clone();
-        let best_node_id = winner.node_id;
-        let best_node = self.egraph.get_node(best_node_id);
-
-        let mut expr = RecExpr::default();
-        let mut memo: std::collections::HashMap<(Id, A::Property), Id> =
-            std::collections::HashMap::new();
-        self.extract_node_to_recexpr(best_node, &props, &mut expr, &mut memo);
-
-        (cost, expr)
+    /// Convenience shim around [`crate::framework::extract::WinnerExtractor`]. For
+    /// custom extraction strategies (different cost models, egg-style extraction,
+    /// top-K, etc.) construct an extractor directly against `&self.egraph`.
+    pub fn extract(&self, id: Id) -> RecExpr<L> {
+        crate::framework::extract::WinnerExtractor::new(&self.egraph)
+            .find_best(id)
+            .1
     }
 
-    /// Recursively extract a node and its children into a RecExpr.
-    fn extract_node_to_recexpr(
-        &self,
-        node: &L,
-        desired: &A::Property,
-        expr: &mut RecExpr<L>,
-        memo: &mut std::collections::HashMap<(Id, A::Property), Id>,
-    ) -> Id {
-        let children = node.children();
-        if children.is_empty() {
-            return expr.add(node.clone());
-        }
-
-        // Look up child requirements via the analysis.
-        let child_data: Vec<&A::Data> = children.iter().map(|&c| &self.egraph[c].data).collect();
-        let reqs = self
-            .egraph
-            .analysis
-            .child_requirements(node, desired, &child_data)
-            .unwrap_or_else(|| {
-                panic!(
-                    "extract: child_requirements returned None for node {:?} with \
-                     desired {:?}; run() should have ensured this node provides {:?}",
-                    node, desired, desired
-                )
-            });
-
-        let mut new_children = Vec::with_capacity(children.len());
-        for (i, &child_id) in children.iter().enumerate() {
-            let child_req = reqs[i].clone();
-            let extracted = self.extract_child(child_id, child_req, expr, memo);
-            new_children.push(extracted);
-        }
-
-        let mut new_node = node.clone();
-        let mut iter = new_children.into_iter();
-        new_node.update_children(|_| iter.next().unwrap());
-        expr.add(new_node)
+    /// Extract the best expression and its cost at the bottom requirement.
+    pub fn extract_with_cost(&self, id: Id) -> (A::Cost, RecExpr<L>) {
+        crate::framework::extract::WinnerExtractor::new(&self.egraph).find_best(id)
     }
 
-    /// Extract a child class for a given requirement, with memoization.
-    fn extract_child(
-        &self,
-        child_eclass: Id,
-        required: A::Property,
-        expr: &mut RecExpr<L>,
-        memo: &mut std::collections::HashMap<(Id, A::Property), Id>,
-    ) -> Id {
-        let canonical = self.egraph.find(child_eclass);
-        if let Some(&id) = memo.get(&(canonical, required.clone())) {
-            return id;
-        }
-
-        let data = &self.egraph[canonical].data;
-        let winner = A::winner(data, &required).unwrap_or_else(|| {
-            panic!(
-                "extract: no winner for child class {:?} with requirement {:?}",
-                canonical, required
-            )
-        });
-        let best_node = self.egraph.get_node(winner.node_id);
-        let recexpr_id = self.extract_node_to_recexpr(best_node, &required, expr, memo);
-        memo.insert((canonical, required), recexpr_id);
-        recexpr_id
+    /// Extract the best expression and its cost for a specific property requirement.
+    pub fn extract_for(&self, id: Id, requirement: A::Property) -> (A::Cost, RecExpr<L>) {
+        crate::framework::extract::WinnerExtractor::new(&self.egraph)
+            .find_best_for(id, requirement)
     }
 
     /// Run an optimize group task.
