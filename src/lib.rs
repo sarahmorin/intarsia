@@ -159,6 +159,7 @@ pub mod metrics;
 
 // Re-export commonly used items from framework
 pub use framework::{
-    CostDomain, CostFunction, ExplorerHooks, OptimizerFramework, Property, PropertyAwareLanguage,
-    SimpleCost, SimpleOptimizerFramework, Task,
+    Demand, ExplorerHooks, NoProperty, OptimizableAnalysis, OptimizerFramework, Property,
+    PropertyAnalysis, PropertyData, PropertyTransfer, SimpleCostAnalysis, SimpleCostData,
+    SimpleCostFn, Task, Winner,
 };

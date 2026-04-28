@@ -1,4 +1,5 @@
 Cargo.lock
+.claude/
 
 # Ignore the rust files compiled by ISLE
 /src/isle/*.rs
